@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout 
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background_dark">
+
+    <!-- Top Bar -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:background="@color/card_dark"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="8dp"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <TextView
+            android:id="@+id/tvAppTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Smart Car Controller"
+            android:textColor="@color/text_white"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvStatusIndicator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="●"
+            android:textColor="@color/status_red"
+            android:textSize="24sp"
+            android:layout_marginEnd="16dp" />
+
+        <Button
+            android:id="@+id/btnOpenBluetooth"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="BT"
+            android:backgroundTint="@color/accent_blue"
+            android:textColor="@color/text_white" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvModeLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Mode: Manual"
+        android:textColor="@color/accent_blue"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:padding="5dp"
+        app:layout_constraintTop_toBottomOf="@id/topBar" />
+
+    <!-- Mode Container -->
+    <FrameLayout
+        android:id="@+id/modeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toBottomOf="@id/tvModeLabel"
+        app:layout_constraintBottom_toTopOf="@id/bottomNav">
+
+        <!-- Manual Layout -->
+        <LinearLayout
+            android:id="@+id/layoutManual"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="visible">
+
+            <Button
+                android:id="@+id/btnFwd"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:text="FWD"
+                android:backgroundTint="@color/button_dark" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginVertical="8dp">
+
+                <Button
+                    android:id="@+id/btnLeft"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:text="LEFT"
+                    android:backgroundTint="@color/button_dark" />
+
+                <Button
+                    android:id="@+id/btnStop"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:text="STOP"
+                    android:layout_marginHorizontal="8dp"
+                    android:backgroundTint="@color/status_red" />
+
+                <Button
+                    android:id="@+id/btnRight"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:text="RIGHT"
+                    android:backgroundTint="@color/button_dark" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnBack"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:text="BACK"
+                android:backgroundTint="@color/button_dark" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="32dp">
+
+                <Button
+                    android:id="@+id/btnAuto"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="AUTO"
+                    android:backgroundTint="@color/button_dark" />
+
+                <Button
+                    android:id="@+id/btnMan"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="MANUAL"
+                    android:layout_marginStart="16dp"
+                    android:backgroundTint="@color/button_dark" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Body Follower Layout -->
+        <LinearLayout
+            android:id="@+id/layoutBody"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/btnBodyActivate"
+                android:layout_width="200dp"
+                android:layout_height="80dp"
+                android:text="ACTIVATE BODY FOLLOWER"
+                android:backgroundTint="@color/accent_blue" />
+
+            <TextView
+                android:id="@+id/lblBodyStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Body Follower Active"
+                android:textColor="@color/text_white"
+                android:textSize="18sp"
+                android:layout_marginTop="24dp"
+                android:visibility="invisible" />
+        </LinearLayout>
+
+        <!-- Gyro Layout -->
+        <LinearLayout
+            android:id="@+id/layoutGyro"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sensitivity"
+                android:textColor="@color/text_white" />
+
+            <SeekBar
+                android:id="@+id/sliderSensitivity"
+                android:layout_width="250dp"
+                android:layout_height="wrap_content"
+                android:max="40"
+                android:progress="15" 
+                android:layout_marginVertical="16dp" />
+
+            <TextView
+                android:id="@+id/lblGyroStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Stop / Flat"
+                android:textColor="@color/accent_blue"
+                android:textSize="24sp"
+                android:layout_marginTop="32dp" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Bottom Navigation -->
+    <LinearLayout
+        android:id="@+id/bottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:background="@color/card_dark"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <Button
+            android:id="@+id/btnNavManual"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="Manual"
+            android:backgroundTint="@color/button_dark" />
+
+        <Button
+            android:id="@+id/btnNavBody"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="Body"
+            android:backgroundTint="@color/button_dark" />
+
+        <Button
+            android:id="@+id/btnNavGyro"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="Gyro"
+            android:backgroundTint="@color/button_dark" />
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
