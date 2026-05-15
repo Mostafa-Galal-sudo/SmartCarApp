@@ -28,10 +28,12 @@ import android.os.Looper;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.SeekBar;
@@ -42,7 +44,6 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
-import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
@@ -71,6 +72,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
+
+    private static final String TAG = "SmartCarApp";
 
     // ===== UI =====
     private TextView tvModeLabel, tvStatusIndicator;
@@ -134,7 +137,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private long lastClapTime = 0;
     private int clapCount = 0;
     private static final double CLAP_THRESHOLD = 5000.0;
-    // Atomic fields for thread-safe lambda access
     private final AtomicLong clapWindowStart = new AtomicLong(0);
     private final AtomicInteger windowClaps = new AtomicInteger(0);
 
@@ -142,7 +144,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private boolean isMusicActive = false;
     private AudioRecord musicAudioRecord;
     private Thread musicThread;
-    private Paint visualizerPaint;
     private float[] visualizerBars = new float[20];
 
     // ===== DRAW PATH =====
@@ -171,101 +172,116 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     );
 
     private static final int PERMISSION_REQUEST_CODE = 101;
-    private static final int VOICE_PERMISSION_CODE = 102;
-    private static final int CAMERA_PERMISSION_CODE = 103;
 
     // ==========================================
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        try {
+            setContentView(R.layout.activity_main);
+            initUI();
+            setupListeners();
+            setupSensors();
+            checkPermissions();
+            initVoiceEngine();
 
-        initUI();
-        setupListeners();
-        setupSensors();
-        checkPermissions();
-        initVoiceEngine();
+            bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+            cameraExecutor = Executors.newSingleThreadExecutor();
 
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        cameraExecutor = Executors.newSingleThreadExecutor();
-
-        // Connection safety checker
-        handler.post(new Runnable() {
-            @Override public void run() {
-                if (isConnected && bluetoothSocket != null && !bluetoothSocket.isConnected())
-                    handleDisconnect();
-                handler.postDelayed(this, 1000);
-            }
-        });
+            // Connection safety checker
+            handler.post(new Runnable() {
+                @Override public void run() {
+                    if (isConnected && bluetoothSocket != null && !bluetoothSocket.isConnected())
+                        handleDisconnect();
+                    handler.postDelayed(this, 1000);
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Fatal error in onCreate", e);
+            Toast.makeText(this, "App Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     // ==========================================
     // INIT UI
     // ==========================================
     private void initUI() {
-        tvModeLabel = findViewById(R.id.tvModeLabel);
-        tvStatusIndicator = findViewById(R.id.tvStatusIndicator);
-        lblBodyStatus = findViewById(R.id.lblBodyStatus);
-        lblGyroStatus = findViewById(R.id.lblGyroStatus);
-        lblVoiceStatus = findViewById(R.id.lblVoiceStatus);
-        lblRecognizedText = findViewById(R.id.lblRecognizedText);
-        lblConfidence = findViewById(R.id.lblConfidence);
-        lblConfirmQuestion= findViewById(R.id.lblConfirmQuestion);
-        layoutConfirm = findViewById(R.id.layoutConfirm);
+        try {
+            tvModeLabel = findViewById(R.id.tvModeLabel);
+            tvStatusIndicator = findViewById(R.id.tvStatusIndicator);
+            lblBodyStatus = findViewById(R.id.lblBodyStatus);
+            lblGyroStatus = findViewById(R.id.lblGyroStatus);
+            lblVoiceStatus = findViewById(R.id.lblVoiceStatus);
+            lblRecognizedText = findViewById(R.id.lblRecognizedText);
+            lblConfidence = findViewById(R.id.lblConfidence);
+            lblConfirmQuestion= findViewById(R.id.lblConfirmQuestion);
+            layoutConfirm = findViewById(R.id.layoutConfirm);
 
-        layoutManual = findViewById(R.id.layoutManual);
-        layoutBody = findViewById(R.id.layoutBody);
-        layoutGyro = findViewById(R.id.layoutGyro);
-        layoutVoice = findViewById(R.id.layoutVoice);
+            layoutManual = findViewById(R.id.layoutManual);
+            layoutBody = findViewById(R.id.layoutBody);
+            layoutGyro = findViewById(R.id.layoutGyro);
+            layoutVoice = findViewById(R.id.layoutVoice);
 
-        btnOpenBluetooth = findViewById(R.id.btnOpenBluetooth);
-        btnNavManual = findViewById(R.id.btnNavManual);
-        btnNavBody = findViewById(R.id.btnNavBody);
-        btnNavGyro = findViewById(R.id.btnNavGyro);
-        btnNavVoice = findViewById(R.id.btnNavVoice);
+            btnOpenBluetooth = findViewById(R.id.btnOpenBluetooth);
+            btnNavManual = findViewById(R.id.btnNavManual);
+            btnNavBody = findViewById(R.id.btnNavBody);
+            btnNavGyro = findViewById(R.id.btnNavGyro);
+            btnNavVoice = findViewById(R.id.btnNavVoice);
 
-        btnFwd = findViewById(R.id.btnFwd);
-        btnBack = findViewById(R.id.btnBack);
-        btnLeft = findViewById(R.id.btnLeft);
-        btnRight = findViewById(R.id.btnRight);
-        btnStop = findViewById(R.id.btnStop);
-        btnAuto = findViewById(R.id.btnAuto);
-        btnMan = findViewById(R.id.btnMan);
-        btnBodyActivate = findViewById(R.id.btnBodyActivate);
-        btnMic = findViewById(R.id.btnMic);
-        btnConfirmYes = findViewById(R.id.btnConfirmYes);
-        btnConfirmNo = findViewById(R.id.btnConfirmNo);
+            btnFwd = findViewById(R.id.btnFwd);
+            btnBack = findViewById(R.id.btnBack);
+            btnLeft = findViewById(R.id.btnLeft);
+            btnRight = findViewById(R.id.btnRight);
+            btnStop = findViewById(R.id.btnStop);
+            btnAuto = findViewById(R.id.btnAuto);
+            btnMan = findViewById(R.id.btnMan);
+            btnBodyActivate = findViewById(R.id.btnBodyActivate);
+            btnMic = findViewById(R.id.btnMic);
+            btnConfirmYes = findViewById(R.id.btnConfirmYes);
+            btnConfirmNo = findViewById(R.id.btnConfirmNo);
 
-        sliderSensitivity = findViewById(R.id.sliderSensitivity);
+            sliderSensitivity = findViewById(R.id.sliderSensitivity);
 
-        // NEW MODE UI
-        layoutLine = findViewById(R.id.layoutLine);
-        layoutClap = findViewById(R.id.layoutClap);
-        layoutMusic = findViewById(R.id.layoutMusic);
-        layoutDraw = findViewById(R.id.layoutDraw);
+            layoutLine = findViewById(R.id.layoutLine);
+            layoutClap = findViewById(R.id.layoutClap);
+            layoutMusic = findViewById(R.id.layoutMusic);
+            layoutDraw = findViewById(R.id.layoutDraw);
 
-        previewLine = findViewById(R.id.previewLine);
-        tvLineStatus = findViewById(R.id.tvLineStatus);
-        sliderLineThreshold = findViewById(R.id.sliderLineThreshold);
-        btnLineStart = findViewById(R.id.btnLineStart);
+            previewLine = findViewById(R.id.previewLine);
+            tvLineStatus = findViewById(R.id.tvLineStatus);
+            sliderLineThreshold = findViewById(R.id.sliderLineThreshold);
+            btnLineStart = findViewById(R.id.btnLineStart);
 
-        btnClapMic = findViewById(R.id.btnClapMic);
-        tvClapStatus = findViewById(R.id.tvClapStatus);
-        tvClapCount = findViewById(R.id.tvClapCount);
+            btnClapMic = findViewById(R.id.btnClapMic);
+            tvClapStatus = findViewById(R.id.tvClapStatus);
+            tvClapCount = findViewById(R.id.tvClapCount);
 
-        btnMusicStart = findViewById(R.id.btnMusicStart);
-        tvMusicStatus = findViewById(R.id.tvMusicStatus);
-        visualizerView = findViewById(R.id.visualizerView);
+            btnMusicStart = findViewById(R.id.btnMusicStart);
+            tvMusicStatus = findViewById(R.id.tvMusicStatus);
+            visualizerView = findViewById(R.id.visualizerView);
 
-        drawPathView = findViewById(R.id.drawPathView);
-        btnDrawPlay = findViewById(R.id.btnDrawPlay);
-        btnDrawClear = findViewById(R.id.btnDrawClear);
-        tvDrawStatus = findViewById(R.id.tvDrawStatus);
+            btnDrawPlay = findViewById(R.id.btnDrawPlay);
+            btnDrawClear = findViewById(R.id.btnDrawClear);
+            tvDrawStatus = findViewById(R.id.tvDrawStatus);
 
-        btnNavLine = findViewById(R.id.btnNavLine);
-        btnNavClap = findViewById(R.id.btnNavClap);
-        btnNavMusic = findViewById(R.id.btnNavMusic);
-        btnNavDraw = findViewById(R.id.btnNavDraw);
+            btnNavLine = findViewById(R.id.btnNavLine);
+            btnNavClap = findViewById(R.id.btnNavClap);
+            btnNavMusic = findViewById(R.id.btnNavMusic);
+            btnNavDraw = findViewById(R.id.btnNavDraw);
+
+            // Setup DrawPathView dynamically
+            FrameLayout drawContainer = findViewById(R.id.drawPathContainer);
+            if (drawContainer != null) {
+                drawPathView = new DrawPathView(this);
+                drawContainer.addView(drawPathView,
+                    new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT));
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error in initUI", e);
+            Toast.makeText(this, "UI Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ==========================================
@@ -284,7 +300,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         btnNavMusic.setOnClickListener(v -> switchMode("Music"));
         btnNavDraw.setOnClickListener(v -> switchMode("Draw"));
 
-        // D-PAD
         View.OnTouchListener dpad = (v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 int id = v.getId();
@@ -307,26 +322,22 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         btnAuto.setOnClickListener(v -> sendCommand("A"));
         btnMan.setOnClickListener(v -> sendCommand("M"));
 
-        // Body
         btnBodyActivate.setOnClickListener(v -> {
             sendCommand("PAT");
             lblBodyStatus.setVisibility(View.VISIBLE);
         });
 
-        // Gyro slider
         sliderSensitivity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean u) { threshold = p; }
             @Override public void onStartTrackingTouch(SeekBar s) {}
             @Override public void onStopTrackingTouch(SeekBar s) {}
         });
 
-        // Voice mic button
         btnMic.setOnClickListener(v -> {
             if (isListening) stopListening();
             else startListening();
         });
 
-        // Confirmation buttons
         btnConfirmYes.setOnClickListener(v -> {
             if (!pendingIntent.isEmpty()) {
                 sendCommand(pendingIntent);
@@ -344,7 +355,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             lblConfidence.setText("");
         });
 
-        // LINE FOLLOWER
         sliderLineThreshold.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean u) { lineThreshold = p; }
             @Override public void onStartTrackingTouch(SeekBar s) {}
@@ -362,38 +372,29 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
         });
 
-        // CLAP CONTROL
         btnClapMic.setOnClickListener(v -> {
             if (isClapActive) stopClapListener();
             else startClapListener();
         });
 
-        // MUSIC RHYTHM
         btnMusicStart.setOnClickListener(v -> {
             if (isMusicActive) stopMusicListener();
             else startMusicListener();
         });
 
-        // DRAW PATH
         btnDrawPlay.setOnClickListener(v -> playDrawPath());
         btnDrawClear.setOnClickListener(v -> {
-            drawPathView.clearPath();
+            if (drawPathView != null) drawPathView.clearPath();
             tvDrawStatus.setText("DRAW A PATH WITH YOUR FINGER");
         });
     }
 
-    // ==========================================
-    // SENSORS
-    // ==========================================
     private void setupSensors() {
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         if (sensorManager != null)
             accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
     }
 
-    // ==========================================
-    // PERMISSIONS
-    // ==========================================
     private void checkPermissions() {
         List<String> perms = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -420,52 +421,36 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                              @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            for (int i = 0; i < permissions.length; i++) {
-                if (permissions[i].equals(Manifest.permission.CAMERA) &&
-                    grantResults[i] == PackageManager.PERMISSION_GRANTED) {
-                    // Camera permission granted
-                }
-            }
-        }
     }
 
-    // ==========================================
-    // VOICE ENGINE
-    // ==========================================
     private void initVoiceEngine() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             Toast.makeText(this, "Speech recognition not available", Toast.LENGTH_SHORT).show();
             return;
         }
-
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle p) {
                 lblVoiceStatus.setText("// LISTENING...");
-                btnMic.setBackgroundTintList(
-                    getResources().getColorStateList(R.color.status_green, null));
+                btnMic.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
             }
             @Override public void onBeginningOfSpeech() {}
             @Override public void onRmsChanged(float v) {}
             @Override public void onBufferReceived(byte[] b) {}
             @Override public void onEndOfSpeech() {
                 isListening = false;
-                btnMic.setBackgroundTintList(
-                    getResources().getColorStateList(R.color.button_dark, null));
+                btnMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
                 lblVoiceStatus.setText("// PROCESSING...");
             }
             @Override public void onError(int error) {
                 isListening = false;
-                btnMic.setBackgroundTintList(
-                    getResources().getColorStateList(R.color.button_dark, null));
+                btnMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
                 lblVoiceStatus.setText("// ERROR — TRY AGAIN");
                 lblRecognizedText.setText("");
                 lblConfidence.setText("");
             }
             @Override public void onResults(Bundle results) {
-                List<String> matches = results.getStringArrayList(
-                    SpeechRecognizer.RESULTS_RECOGNITION);
+                List<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches != null && !matches.isEmpty())
                     handleVoiceResult(matches.get(0));
             }
@@ -479,30 +464,22 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         isListening = true;
         layoutConfirm.setVisibility(View.GONE);
         pendingIntent = "";
-
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
-
         speechRecognizer.startListening(intent);
     }
 
     private void stopListening() {
         if (speechRecognizer != null) speechRecognizer.stopListening();
         isListening = false;
-        btnMic.setBackgroundTintList(
-            getResources().getColorStateList(R.color.button_dark, null));
+        btnMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
         lblVoiceStatus.setText("PRESS TO SPEAK");
     }
 
-    // ==========================================
-    // VOICE PROCESSING
-    // ==========================================
     private void handleVoiceResult(String raw) {
         String text = normalizeText(raw);
         lblRecognizedText.setText("\"" + raw + "\"");
-
         Map<String, Double> scores = new HashMap<>();
         scores.put("F", matchScore(text, DICT_F));
         scores.put("B", matchScore(text, DICT_B));
@@ -525,13 +502,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (bestScore >= 0.7) {
             sendCommand(best);
             showVoiceResult("// COMMAND: " + intentLabel(best), true);
-
         } else if (bestScore >= 0.4) {
             pendingIntent = best;
             lblConfirmQuestion.setText("Did you mean: " + intentLabel(best) + " ?");
             layoutConfirm.setVisibility(View.VISIBLE);
             lblVoiceStatus.setText("// CONFIRM COMMAND");
-
         } else {
             showVoiceResult("// NOT RECOGNIZED", false);
         }
@@ -539,10 +514,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private void showVoiceResult(String status, boolean accepted) {
         lblVoiceStatus.setText(status);
-        lblVoiceStatus.setTextColor(accepted
-            ? getColor(R.color.status_green)
-            : getColor(R.color.status_red));
-
+        lblVoiceStatus.setTextColor(accepted ? getColor(R.color.status_green) : getColor(R.color.status_red));
         handler.postDelayed(() -> {
             lblVoiceStatus.setText("PRESS TO SPEAK");
             lblVoiceStatus.setTextColor(getColor(R.color.text_dim));
@@ -560,14 +532,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
-    // ==========================================
-    // NLP ENGINE
-    // ==========================================
     private String normalizeText(String input) {
-        return input.toLowerCase()
-            .replaceAll("[^a-zA-Z\\u0600-\\u06FF ]", "")
-            .replaceAll("\\s+", " ")
-            .trim();
+        return input.toLowerCase().replaceAll("[^a-zA-Z\\u0600-\\u06FF ]", "").replaceAll("\\s+", " ").trim();
     }
 
     private double matchScore(String input, List<String> dict) {
@@ -593,24 +559,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         return dp[m][n];
     }
 
-    // ==========================================
-    // BIOMETRIC AUTHENTICATION (SECURITY LAYER)
-    // ==========================================
     private void showBiometricAuth(BluetoothDevice device) {
         pendingAuthDevice = device;
-
         BiometricManager biometricManager = BiometricManager.from(this);
-
-        int canAuthStrong = biometricManager.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG);
-        int canAuthWeak = biometricManager.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_WEAK);
+        int canAuthStrong = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG);
+        int canAuthWeak = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK);
 
         if (canAuthStrong != BiometricManager.BIOMETRIC_SUCCESS &&
             canAuthWeak != BiometricManager.BIOMETRIC_SUCCESS) {
-            Toast.makeText(this,
-                "Biometric authentication not available. Please enroll fingerprint or face unlock in Settings.",
-                Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Biometric not available. Enroll in Settings.", Toast.LENGTH_LONG).show();
             pendingAuthDevice = null;
             return;
         }
@@ -621,11 +578,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 @Override
                 public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
                     super.onAuthenticationError(errorCode, errString);
-                    Toast.makeText(getApplicationContext(),
-                        "Authentication error: " + errString, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(getApplicationContext(), "Auth error: " + errString, Toast.LENGTH_SHORT).show();
                     pendingAuthDevice = null;
                 }
-
                 @Override
                 public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
                     super.onAuthenticationSucceeded(result);
@@ -637,34 +592,26 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         pendingAuthDevice = null;
                     }
                 }
-
                 @Override
                 public void onAuthenticationFailed() {
                     super.onAuthenticationFailed();
-                    Toast.makeText(getApplicationContext(),
-                        "Authentication failed. Try again.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(getApplicationContext(), "Auth failed", Toast.LENGTH_SHORT).show();
                     pendingAuthDevice = null;
                 }
             });
 
         BiometricPrompt.PromptInfo.Builder promptBuilder = new BiometricPrompt.PromptInfo.Builder()
             .setTitle("Smart Car Security")
-            .setSubtitle("Verify your identity to connect to the car")
-            .setDescription("Use your fingerprint or face recognition to authenticate");
-
+            .setSubtitle("Verify your identity")
+            .setDescription("Use fingerprint or face");
         if (canAuthStrong == BiometricManager.BIOMETRIC_SUCCESS) {
             promptBuilder.setNegativeButtonText("Cancel");
         } else {
             promptBuilder.setDeviceCredentialAllowed(true);
         }
-
-        BiometricPrompt.PromptInfo promptInfo = promptBuilder.build();
-        biometricPrompt.authenticate(promptInfo);
+        biometricPrompt.authenticate(promptBuilder.build());
     }
 
-    // ==========================================
-    // BLUETOOTH
-    // ==========================================
     @SuppressLint("MissingPermission")
     private void showBluetoothDialog() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
@@ -685,11 +632,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             devList.add(d);
         }
 
-        lvDevices.setAdapter(new ArrayAdapter<>(this,
-            android.R.layout.simple_list_item_1, nameList));
-        lvDevices.setOnItemClickListener((p, v, pos, id) -> {
-            showBiometricAuth(devList.get(pos));
-        });
+        lvDevices.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, nameList));
+        lvDevices.setOnItemClickListener((p, v, pos, id) -> showBiometricAuth(devList.get(pos)));
         btnDisconnect.setOnClickListener(v -> {
             handleDisconnect();
             bluetoothDialog.dismiss();
@@ -711,8 +655,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 });
             } catch (IOException e) {
                 isConnected = false;
-                runOnUiThread(() ->
-                    Toast.makeText(this, "Connection Failed", Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(this, "Connection Failed", Toast.LENGTH_SHORT).show());
                 try { if (bluetoothSocket != null) bluetoothSocket.close(); }
                 catch (IOException ignored) {}
             }
@@ -740,9 +683,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
-    // ==========================================
-    // MODE SWITCHING
-    // ==========================================
     private void switchMode(String mode) {
         sendCommand("S");
         layoutManual.setVisibility(View.GONE);
@@ -778,8 +718,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 tvModeLabel.setText("// MODE: GYRO");
                 isGyroActive = true;
                 if (sensorManager != null && accelerometer != null)
-                    sensorManager.registerListener(this, accelerometer,
-                        SensorManager.SENSOR_DELAY_UI);
+                    sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
                 break;
             case "Voice":
                 sendCommand("M");
@@ -818,27 +757,20 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
-    // ==========================================
-    // GYRO
-    // ==========================================
     @Override
     public void onSensorChanged(SensorEvent event) {
         if (!isGyroActive) return;
-
         r1x = r2x; r2x = r3x; r3x = event.values[0];
         r1y = r2y; r2y = r3y; r3y = event.values[1];
-
         float avgX = (r1x + r2x + r3x) / 3f;
         float avgY = (r1y + r2y + r3y) / 3f;
         float thr = threshold / 5.0f;
-
         String target, status;
         if (avgY > thr) { target = "F"; status = "Forward"; }
         else if (avgY < -thr) { target = "B"; status = "Backward"; }
         else if (avgX > thr) { target = "R"; status = "Right"; }
         else if (avgX < -thr) { target = "L"; status = "Left"; }
         else { target = "S"; status = "Stop / Flat";}
-
         lblGyroStatus.setText(status);
         if (!target.equals(lastCmd)) sendCommand(target);
     }
@@ -846,7 +778,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     @Override public void onAccuracyChanged(Sensor s, int a) {}
 
     // ==========================================
-    // MODE 4 — LINE FOLLOWER (CameraX)
+    // LINE FOLLOWER
     // ==========================================
     private void startLineTracking() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -864,16 +796,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 cameraProvider = cameraProviderFuture.get();
                 Preview preview = new Preview.Builder().build();
                 preview.setSurfaceProvider(previewLine.getSurfaceProvider());
-
                 ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build();
                 imageAnalysis.setAnalyzer(cameraExecutor, new LineAnalyzer());
-
                 CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
                 cameraProvider.unbindAll();
                 cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
-
             } catch (Exception e) {
                 e.printStackTrace();
                 runOnUiThread(() -> tvLineStatus.setText("// CAMERA ERROR"));
@@ -884,70 +813,45 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void stopLineTracking() {
         isLineTracking = false;
         tvLineStatus.setText("// POINT CAMERA AT LINE");
-        if (cameraProvider != null) {
-            cameraProvider.unbindAll();
-        }
+        if (cameraProvider != null) cameraProvider.unbindAll();
     }
 
     private class LineAnalyzer implements ImageAnalysis.Analyzer {
         @Override
         public void analyze(@NonNull ImageProxy image) {
-            if (!isLineTracking) {
-                image.close();
-                return;
-            }
-
+            if (!isLineTracking) { image.close(); return; }
             ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
             int width = image.getWidth();
             int height = image.getHeight();
             int rowStride = image.getPlanes()[0].getRowStride();
-
             int startY = height * 6 / 10;
             int sumX = 0;
             int count = 0;
-
             for (int y = startY; y < height; y += 2) {
                 for (int x = 0; x < width; x += 4) {
                     int gray = yBuffer.get(y * rowStride + x) & 0xFF;
-                    if (gray < lineThreshold) {
-                        sumX += x;
-                        count++;
-                    }
+                    if (gray < lineThreshold) { sumX += x; count++; }
                 }
             }
-
             if (count > 50) {
                 int centerX = sumX / count;
                 int imageCenter = width / 2;
                 int tolerance = width / 8;
                 final String cmd;
                 final String status;
-
-                if (centerX < imageCenter - tolerance) {
-                    cmd = "L"; status = "LINE LEFT → TURN LEFT";
-                } else if (centerX > imageCenter + tolerance) {
-                    cmd = "R"; status = "LINE RIGHT → TURN RIGHT";
-                } else {
-                    cmd = "F"; status = "LINE CENTER → FORWARD";
-                }
-
-                runOnUiThread(() -> {
-                    sendCommand(cmd);
-                    tvLineStatus.setText("// " + status);
-                });
+                if (centerX < imageCenter - tolerance) { cmd = "L"; status = "LINE LEFT"; }
+                else if (centerX > imageCenter + tolerance) { cmd = "R"; status = "LINE RIGHT"; }
+                else { cmd = "F"; status = "LINE CENTER"; }
+                runOnUiThread(() -> { sendCommand(cmd); tvLineStatus.setText("// " + status); });
             } else {
-                runOnUiThread(() -> {
-                    sendCommand("S");
-                    tvLineStatus.setText("// NO LINE DETECTED");
-                });
+                runOnUiThread(() -> { sendCommand("S"); tvLineStatus.setText("// NO LINE"); });
             }
-
             image.close();
         }
     }
 
     // ==========================================
-    // MODE 5 — CLAP CONTROL (AudioRecord)
+    // CLAP CONTROL
     // ==========================================
     private void startClapListener() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -957,23 +861,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
         isClapActive = true;
         btnClapMic.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
-        tvClapStatus.setText("// LISTENING FOR CLAPS...");
+        tvClapStatus.setText("// LISTENING...");
         clapCount = 0;
         clapWindowStart.set(0);
         windowClaps.set(0);
 
         final int sampleRate = 44100;
         final int bufferSize = Math.max(1024,
-            AudioRecord.getMinBufferSize(sampleRate,
-                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT));
-
+            AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT));
         clapAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
-            sampleRate, AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT, bufferSize);
-
+            sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
         final short[] buffer = new short[bufferSize];
         clapAudioRecord.startRecording();
-
         clapThread = new Thread(new ClapRunnable(buffer, bufferSize));
         clapThread.start();
     }
@@ -981,24 +880,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private class ClapRunnable implements Runnable {
         private final short[] buffer;
         private final int bufSize;
-
-        ClapRunnable(short[] buffer, int bufSize) {
-            this.buffer = buffer;
-            this.bufSize = bufSize;
-        }
-
+        ClapRunnable(short[] buffer, int bufSize) { this.buffer = buffer; this.bufSize = bufSize; }
         @Override
         public void run() {
             while (isClapActive && clapAudioRecord != null) {
                 int read = clapAudioRecord.read(buffer, 0, bufSize);
                 if (read <= 0) continue;
-
                 double rms = calculateRMS(buffer, read);
                 if (rms > CLAP_THRESHOLD) {
                     long now = System.currentTimeMillis();
                     if (now - lastClapTime > 250) {
                         lastClapTime = now;
-
                         long currentWindowStart = clapWindowStart.get();
                         if (currentWindowStart == 0 || now - currentWindowStart > 1200) {
                             clapWindowStart.set(now);
@@ -1006,12 +898,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         } else {
                             windowClaps.incrementAndGet();
                         }
-
                         final int currentWindowClaps = windowClaps.get();
-                        runOnUiThread(() -> {
-                            tvClapCount.setText("CLAPS: " + currentWindowClaps);
-                        });
-
+                        runOnUiThread(() -> tvClapCount.setText("CLAPS: " + currentWindowClaps));
                         if (windowClaps.get() >= 3) {
                             executeClapCommand(windowClaps.get());
                             clapWindowStart.set(0);
@@ -1033,18 +921,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void stopClapListener() {
         isClapActive = false;
         btnClapMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
-        tvClapStatus.setText("TAP TO ACTIVATE CLAP LISTENER");
+        tvClapStatus.setText("TAP TO ACTIVATE");
         tvClapCount.setText("");
-        if (clapAudioRecord != null) {
-            clapAudioRecord.stop();
-            clapAudioRecord.release();
-            clapAudioRecord = null;
-        }
+        if (clapAudioRecord != null) { clapAudioRecord.stop(); clapAudioRecord.release(); clapAudioRecord = null; }
     }
 
     private void executeClapCommand(int claps) {
-        String cmd;
-        String label;
+        String cmd, label;
         switch (claps) {
             case 1: cmd = "S"; label = "STOP"; break;
             case 2: cmd = "F"; label = "FORWARD"; break;
@@ -1055,16 +938,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         runOnUiThread(() -> tvClapStatus.setText("// " + label + " (" + claps + " claps)"));
     }
 
-    private double calculateRMS(short[] buffer, int length) {
-        double sum = 0;
-        for (int i = 0; i < length; i++) {
-            sum += buffer[i] * buffer[i];
-        }
-        return Math.sqrt(sum / length);
-    }
-
     // ==========================================
-    // MODE 6 — MUSIC RHYTHM (Beat Detection)
+    // MUSIC RHYTHM
     // ==========================================
     private void startMusicListener() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -1074,20 +949,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
         isMusicActive = true;
         btnMusicStart.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
-        tvMusicStatus.setText("// LISTENING TO BEATS...");
-
+        tvMusicStatus.setText("// LISTENING...");
         final int sampleRate = 44100;
         final int bufferSize = Math.max(2048,
-            AudioRecord.getMinBufferSize(sampleRate,
-                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT));
-
+            AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT));
         musicAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
-            sampleRate, AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT, bufferSize);
-
+            sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
         final short[] buffer = new short[bufferSize];
         musicAudioRecord.startRecording();
-
         musicThread = new Thread(new MusicRunnable(buffer, bufferSize));
         musicThread.start();
     }
@@ -1095,31 +964,22 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private class MusicRunnable implements Runnable {
         private final short[] buffer;
         private final int bufSize;
-
-        MusicRunnable(short[] buffer, int bufSize) {
-            this.buffer = buffer;
-            this.bufSize = bufSize;
-        }
-
+        MusicRunnable(short[] buffer, int bufSize) { this.buffer = buffer; this.bufSize = bufSize; }
         @Override
         public void run() {
             double prevEnergy = 0;
             int beatCount = 0;
-
             while (isMusicActive && musicAudioRecord != null) {
                 int read = musicAudioRecord.read(buffer, 0, bufSize);
                 if (read <= 0) continue;
-
                 double energy = calculateRMS(buffer, read);
                 double flux = energy - prevEnergy;
                 prevEnergy = energy;
-
                 final float barHeight = Math.min(60f, (float)(energy / 100));
                 runOnUiThread(() -> {
                     visualizerView.setScaleY(barHeight / 60f);
                     visualizerView.setAlpha(0.5f + (barHeight / 120f));
                 });
-
                 if (flux > 1500 && energy > 2000) {
                     beatCount++;
                     final int currentBeat = beatCount;
@@ -1133,7 +993,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                             sendCommand("F");
                         }
                     });
-
                     try { Thread.sleep(300); } catch (InterruptedException ignored) {}
                 }
             }
@@ -1143,20 +1002,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void stopMusicListener() {
         isMusicActive = false;
         btnMusicStart.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
-        tvMusicStatus.setText("TAP TO START RHYTHM MODE");
+        tvMusicStatus.setText("TAP TO START");
         visualizerView.setScaleY(1f);
         visualizerView.setAlpha(1f);
-        if (musicAudioRecord != null) {
-            musicAudioRecord.stop();
-            musicAudioRecord.release();
-            musicAudioRecord = null;
-        }
+        if (musicAudioRecord != null) { musicAudioRecord.stop(); musicAudioRecord.release(); musicAudioRecord = null; }
     }
 
     // ==========================================
-    // MODE 7 — DRAW PATH
+    // DRAW PATH
     // ==========================================
     private void playDrawPath() {
+        if (drawPathView == null) return;
         List<PointF> points = drawPathView.getPoints();
         if (points.size() < 2) {
             tvDrawStatus.setText("DRAW SOMETHING FIRST!");
@@ -1164,61 +1020,49 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
         if (isDrawingPlaying) return;
         isDrawingPlaying = true;
-        tvDrawStatus.setText("// PLAYING PATH...");
-
+        tvDrawStatus.setText("// PLAYING...");
         new Thread(() -> {
             int step = Math.max(1, points.size() / 50);
             List<PointF> simplified = new ArrayList<>();
-            for (int i = 0; i < points.size(); i += step) {
-                simplified.add(points.get(i));
-            }
+            for (int i = 0; i < points.size(); i += step) simplified.add(points.get(i));
             if (simplified.size() < 2) simplified = points;
-
             for (int i = 1; i < simplified.size(); i++) {
                 PointF prev = simplified.get(i - 1);
                 PointF curr = simplified.get(i);
-
                 float dx = curr.x - prev.x;
                 float dy = curr.y - prev.y;
                 float dist = (float) Math.sqrt(dx * dx + dy * dy);
                 float angle = (float) Math.toDegrees(Math.atan2(dy, dx));
-
                 float adjusted = angle + 90;
                 if (adjusted > 180) adjusted -= 360;
                 if (adjusted < -180) adjusted += 360;
-
                 String cmd;
                 int duration;
-                if (Math.abs(adjusted) < 25) {
-                    cmd = "F";
-                    duration = (int)(dist * 8);
-                } else if (adjusted > 25) {
-                    cmd = "R";
-                    duration = (int)(Math.abs(adjusted) * 6);
-                } else {
-                    cmd = "L";
-                    duration = (int)(Math.abs(adjusted) * 6);
-                }
-
+                if (Math.abs(adjusted) < 25) { cmd = "F"; duration = (int)(dist * 8); }
+                else if (adjusted > 25) { cmd = "R"; duration = (int)(Math.abs(adjusted) * 6); }
+                else { cmd = "L"; duration = (int)(Math.abs(adjusted) * 6); }
                 final String fCmd = cmd;
                 final int fDur = Math.min(duration, 800);
                 final int progress = i;
                 final int total = simplified.size();
-
                 runOnUiThread(() -> {
                     sendCommand(fCmd);
-                    tvDrawStatus.setText("// STEP " + progress + "/" + total + " → " + fCmd);
+                    tvDrawStatus.setText("// STEP " + progress + "/" + total + " -> " + fCmd);
                 });
-
                 try { Thread.sleep(fDur); } catch (InterruptedException ignored) {}
             }
-
             runOnUiThread(() -> {
                 sendCommand("S");
-                tvDrawStatus.setText("// PATH COMPLETE");
+                tvDrawStatus.setText("// COMPLETE");
                 isDrawingPlaying = false;
             });
         }).start();
+    }
+
+    private double calculateRMS(short[] buffer, int length) {
+        double sum = 0;
+        for (int i = 0; i < length; i++) sum += buffer[i] * buffer[i];
+        return Math.sqrt(sum / length);
     }
 
     // ==========================================
@@ -1246,16 +1090,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             paint.setStrokeJoin(Paint.Join.ROUND);
             paint.setAntiAlias(true);
         }
-
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             canvas.drawColor(Color.parseColor("#1a1a2e"));
-            if (!path.isEmpty()) {
-                canvas.drawPath(path, paint);
-            }
+            if (!path.isEmpty()) canvas.drawPath(path, paint);
         }
-
         @Override
         public boolean onTouchEvent(MotionEvent event) {
             float x = event.getX();
@@ -1274,13 +1114,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
             return false;
         }
-
         public void clearPath() {
             path.reset();
             points.clear();
             invalidate();
         }
-
         public List<PointF> getPoints() {
             return new ArrayList<>(points);
         }
@@ -1294,10 +1132,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         super.onDestroy();
         handleDisconnect();
         if (sensorManager != null) sensorManager.unregisterListener(this);
-        if (speechRecognizer != null) {
-            speechRecognizer.stopListening();
-            speechRecognizer.destroy();
-        }
+        if (speechRecognizer != null) { speechRecognizer.stopListening(); speechRecognizer.destroy(); }
         if (isLineTracking) stopLineTracking();
         if (isClapActive) stopClapListener();
         if (isMusicActive) stopMusicListener();
