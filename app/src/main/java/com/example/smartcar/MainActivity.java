@@ -557,6 +557,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         SensorManager.SENSOR_DELAY_UI);
                 break;
             case "Voice":
+                sendCommand("M");
                 layoutVoice.setVisibility(View.VISIBLE);
                 tvModeLabel.setText("// MODE: VOICE AI");
                 layoutConfirm.setVisibility(View.GONE);
