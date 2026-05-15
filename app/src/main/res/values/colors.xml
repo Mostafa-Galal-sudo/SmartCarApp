@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Original colors -->
     <color name="background_dark">#0A0A0A</color>
     <color name="card_dark">#111111</color>
     <color name="button_dark">#1A1A1A</color>
@@ -9,4 +10,8 @@
     <color name="status_green">#39FF14</color>
     <color name="text_white">#FFFFFF</color>
     <color name="text_dim">#888888</color>
+
+    <!-- NEW: Missing colors referenced in activity_main.xml -->
+    <color name="bg_dark">#0A0A0A</color>
+    <color name="text_bright">#FFFFFF</color>
 </resources>
