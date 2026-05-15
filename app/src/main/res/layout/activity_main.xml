@@ -22,7 +22,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="SMART CAR"
+            android:text="BBC TEAM"
             android:textColor="@color/accent_blue"
             android:textSize="20sp"
             android:textStyle="bold"
@@ -79,14 +79,12 @@
             android:padding="16dp"
             android:visibility="visible">
 
-            <!-- D-PAD -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:gravity="center">
 
-                <!-- FWD -->
                 <Button
                     android:id="@+id/btnFwd"
                     android:layout_width="110dp"
@@ -95,10 +93,8 @@
                     android:textSize="16sp"
                     android:textStyle="bold"
                     android:textColor="@color/accent_blue"
-                    android:backgroundTint="@color/button_dark"
-                    android:letterSpacing="0.1" />
+                    android:backgroundTint="@color/button_dark" />
 
-                <!-- LEFT / STOP / RIGHT -->
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -137,7 +133,6 @@
                         android:layout_marginStart="6dp" />
                 </LinearLayout>
 
-                <!-- BACK -->
                 <Button
                     android:id="@+id/btnBack"
                     android:layout_width="110dp"
@@ -146,11 +141,9 @@
                     android:textSize="16sp"
                     android:textStyle="bold"
                     android:textColor="@color/accent_blue"
-                    android:backgroundTint="@color/button_dark"
-                    android:letterSpacing="0.1" />
+                    android:backgroundTint="@color/button_dark" />
             </LinearLayout>
 
-            <!-- AUTO / MANUAL TOGGLE -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -206,7 +199,6 @@
                 android:text="// BODY FOLLOWER ACTIVE"
                 android:textColor="@color/status_green"
                 android:textSize="14sp"
-                android:letterSpacing="0.05"
                 android:layout_marginTop="20dp"
                 android:visibility="invisible" />
         </LinearLayout>
@@ -248,6 +240,105 @@
                 android:letterSpacing="0.2"
                 android:layout_marginTop="32dp" />
         </LinearLayout>
+
+        <!-- VOICE LAYOUT -->
+        <LinearLayout
+            android:id="@+id/layoutVoice"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="24dp"
+            android:visibility="gone">
+
+            <!-- MIC BUTTON -->
+            <Button
+                android:id="@+id/btnMic"
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:text="🎤"
+                android:textSize="40sp"
+                android:backgroundTint="@color/button_dark" />
+
+            <!-- STATUS -->
+            <TextView
+                android:id="@+id/lblVoiceStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PRESS TO SPEAK"
+                android:textColor="@color/text_dim"
+                android:textSize="13sp"
+                android:letterSpacing="0.1"
+                android:layout_marginTop="20dp" />
+
+            <!-- RECOGNIZED TEXT -->
+            <TextView
+                android:id="@+id/lblRecognizedText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/text_white"
+                android:textSize="18sp"
+                android:textStyle="italic"
+                android:layout_marginTop="12dp" />
+
+            <!-- CONFIDENCE -->
+            <TextView
+                android:id="@+id/lblConfidence"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/accent_blue"
+                android:textSize="12sp"
+                android:layout_marginTop="8dp" />
+
+            <!-- CONFIRMATION SECTION (hidden by default) -->
+            <LinearLayout
+                android:id="@+id/layoutConfirm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:layout_marginTop="24dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/lblConfirmQuestion"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Did you mean: ?"
+                    android:textColor="@color/accent_orange"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp">
+
+                    <Button
+                        android:id="@+id/btnConfirmYes"
+                        android:layout_width="110dp"
+                        android:layout_height="50dp"
+                        android:text="YES ✓"
+                        android:textStyle="bold"
+                        android:textColor="@color/background_dark"
+                        android:backgroundTint="@color/status_green"
+                        android:layout_marginEnd="16dp" />
+
+                    <Button
+                        android:id="@+id/btnConfirmNo"
+                        android:layout_width="110dp"
+                        android:layout_height="50dp"
+                        android:text="NO ✗"
+                        android:textStyle="bold"
+                        android:textColor="@color/background_dark"
+                        android:backgroundTint="@color/status_red" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
     </FrameLayout>
 
     <!-- BOTTOM NAV -->
@@ -265,7 +356,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:text="MANUAL"
-            android:textSize="11sp"
+            android:textSize="10sp"
             android:textStyle="bold"
             android:textColor="@color/accent_blue"
             android:backgroundTint="@color/button_dark" />
@@ -276,7 +367,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:text="BODY"
-            android:textSize="11sp"
+            android:textSize="10sp"
             android:textStyle="bold"
             android:textColor="@color/accent_blue"
             android:backgroundTint="@color/button_dark" />
@@ -287,7 +378,18 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:text="GYRO"
-            android:textSize="11sp"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="@color/accent_blue"
+            android:backgroundTint="@color/button_dark" />
+
+        <Button
+            android:id="@+id/btnNavVoice"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="VOICE"
+            android:textSize="10sp"
             android:textStyle="bold"
             android:textColor="@color/accent_blue"
             android:backgroundTint="@color/button_dark" />
