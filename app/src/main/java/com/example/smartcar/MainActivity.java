@@ -330,7 +330,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-EG");
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ar-EG");
-        intent.putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_MATCHING, false);
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
 
         speechRecognizer.startListening(intent);
