@@ -301,15 +301,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         btnNavDraw.setOnClickListener(v -> switchMode("Draw"));
 
         View.OnTouchListener dpad = (v, event) -> {
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                int id = v.getId();
-                if (id == R.id.btnFwd) sendCommand("F");
-                else if (id == R.id.btnBack) sendCommand("B");
-                else if (id == R.id.btnLeft) sendCommand("L");
-                else if (id == R.id.btnRight) sendCommand("R");
-            } else if (event.getAction() == MotionEvent.ACTION_UP ||
-                       event.getAction() == MotionEvent.ACTION_CANCEL) {
-                sendCommand("S");
+            int id = v.getId();
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    if (id == R.id.btnFwd) sendCommand("F");
+                    else if (id == R.id.btnBack) sendCommand("B");
+                    else if (id == R.id.btnLeft) sendCommand("L");
+                    else if (id == R.id.btnRight) sendCommand("R");
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    sendCommand("S");
+                    return true;
             }
             return false;
         };
@@ -364,11 +367,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             if (isLineTracking) {
                 stopLineTracking();
                 btnLineStart.setText("START TRACKING");
-                btnLineStart.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
             } else {
                 startLineTracking();
                 btnLineStart.setText("STOP TRACKING");
-                btnLineStart.setBackgroundTintList(getResources().getColorStateList(R.color.status_red, null));
             }
         });
 
@@ -432,19 +433,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle p) {
                 lblVoiceStatus.setText(">>> LISTENING...");
-                btnMic.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
             }
             @Override public void onBeginningOfSpeech() {}
             @Override public void onRmsChanged(float v) {}
             @Override public void onBufferReceived(byte[] b) {}
             @Override public void onEndOfSpeech() {
                 isListening = false;
-                btnMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
                 lblVoiceStatus.setText(">>> PROCESSING...");
             }
             @Override public void onError(int error) {
                 isListening = false;
-                btnMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
                 lblVoiceStatus.setText(">>> ERROR — TRY AGAIN");
                 lblRecognizedText.setText("");
                 lblConfidence.setText("");
@@ -473,7 +471,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void stopListening() {
         if (speechRecognizer != null) speechRecognizer.stopListening();
         isListening = false;
-        btnMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
         lblVoiceStatus.setText(">>> PRESS TO SPEAK");
     }
 
@@ -650,7 +647,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 outputStream = bluetoothSocket.getOutputStream();
                 isConnected = true;
                 runOnUiThread(() -> {
-                    tvStatusIndicator.setTextColor(Color.parseColor("#00F0FF"));
+        // Status indicator updated via connection state
                     Toast.makeText(this, "Connected", Toast.LENGTH_SHORT).show();
                 });
             } catch (IOException e) {
@@ -860,7 +857,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             return;
         }
         isClapActive = true;
-        btnClapMic.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
         tvClapStatus.setText(">>> LISTENING...");
         clapCount = 0;
         clapWindowStart.set(0);
@@ -920,7 +916,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private void stopClapListener() {
         isClapActive = false;
-        btnClapMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
         tvClapStatus.setText(">>> TAP TO ACTIVATE");
         tvClapCount.setText("");
         if (clapAudioRecord != null) { clapAudioRecord.stop(); clapAudioRecord.release(); clapAudioRecord = null; }
@@ -948,7 +943,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             return;
         }
         isMusicActive = true;
-        btnMusicStart.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
         tvMusicStatus.setText(">>> LISTENING...");
         final int sampleRate = 44100;
         final int bufferSize = Math.max(2048,
@@ -1001,7 +995,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private void stopMusicListener() {
         isMusicActive = false;
-        btnMusicStart.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
         tvMusicStatus.setText(">>> TAP TO START");
         visualizerView.setScaleY(1f);
         visualizerView.setAlpha(1f);
