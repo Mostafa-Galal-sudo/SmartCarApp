@@ -26,12 +26,22 @@ android {
     }
 }
 
+// FIX: Force all Kotlin stdlib to same version to prevent duplicate classes
 dependencies {
+    constraints {
+        implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22") {
+            because("kotlin-stdlib-jdk7 is merged into kotlin-stdlib since 1.8")
+        }
+        implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22") {
+            because("kotlin-stdlib-jdk8 is merged into kotlin-stdlib since 1.8")
+        }
+    }
+
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.9.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.biometric:biometric:1.1.0'
-
+    
     // CameraX
     def camerax_version = "1.3.0"
     implementation "androidx.camera:camera-core:$camerax_version"
