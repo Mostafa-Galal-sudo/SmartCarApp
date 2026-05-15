@@ -9,11 +9,18 @@ import android.bluetooth.BluetoothSocket;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PointF;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -35,11 +42,21 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
+import androidx.camera.core.Camera;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.google.common.util.concurrent.ListenableFuture;
+
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -48,6 +65,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
@@ -58,9 +77,19 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private View layoutManual, layoutBody, layoutGyro, layoutVoice;
     private LinearLayout layoutConfirm;
     private Button btnOpenBluetooth, btnNavManual, btnNavBody, btnNavGyro, btnNavVoice;
+    private Button btnNavLine, btnNavClap, btnNavMusic, btnNavDraw;
     private Button btnFwd, btnBack, btnLeft, btnRight, btnStop, btnAuto, btnMan;
     private Button btnBodyActivate, btnMic, btnConfirmYes, btnConfirmNo;
     private SeekBar sliderSensitivity;
+
+    // ===== NEW MODE UI =====
+    private View layoutLine, layoutClap, layoutMusic, layoutDraw;
+    private PreviewView previewLine;
+    private TextView tvLineStatus, tvClapStatus, tvClapCount, tvMusicStatus, tvDrawStatus;
+    private SeekBar sliderLineThreshold;
+    private Button btnLineStart, btnClapMic, btnMusicStart, btnDrawPlay, btnDrawClear;
+    private DrawPathView drawPathView;
+    private View visualizerView;
 
     // ===== BLUETOOTH =====
     private BluetoothAdapter bluetoothAdapter;
@@ -90,6 +119,30 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private boolean isListening = false;
     private String pendingIntent = "";
 
+    // ===== LINE FOLLOWER (Camera) =====
+    private ExecutorService cameraExecutor;
+    private boolean isLineTracking = false;
+    private int lineThreshold = 80;
+    private ProcessCameraProvider cameraProvider;
+
+    // ===== CLAP CONTROL =====
+    private boolean isClapActive = false;
+    private AudioRecord clapAudioRecord;
+    private Thread clapThread;
+    private long lastClapTime = 0;
+    private int clapCount = 0;
+    private static final double CLAP_THRESHOLD = 5000.0;
+
+    // ===== MUSIC RHYTHM =====
+    private boolean isMusicActive = false;
+    private AudioRecord musicAudioRecord;
+    private Thread musicThread;
+    private Paint visualizerPaint;
+    private float[] visualizerBars = new float[20];
+
+    // ===== DRAW PATH =====
+    private boolean isDrawingPlaying = false;
+
     // ===== DICTIONARIES =====
     private static final List DICT_F = Arrays.asList(
         "forward", "go", "ahead", "move", "drive", "straight", "fwd",
@@ -114,6 +167,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private static final int PERMISSION_REQUEST_CODE = 101;
     private static final int VOICE_PERMISSION_CODE = 102;
+    private static final int CAMERA_PERMISSION_CODE = 103;
 
     // ==========================================
     @Override
@@ -128,6 +182,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         initVoiceEngine();
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        cameraExecutor = Executors.newSingleThreadExecutor();
 
         // Connection safety checker
         handler.post(new Runnable() {
@@ -177,6 +232,35 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         btnConfirmNo = findViewById(R.id.btnConfirmNo);
 
         sliderSensitivity = findViewById(R.id.sliderSensitivity);
+
+        // NEW MODE UI
+        layoutLine = findViewById(R.id.layoutLine);
+        layoutClap = findViewById(R.id.layoutClap);
+        layoutMusic = findViewById(R.id.layoutMusic);
+        layoutDraw = findViewById(R.id.layoutDraw);
+
+        previewLine = findViewById(R.id.previewLine);
+        tvLineStatus = findViewById(R.id.tvLineStatus);
+        sliderLineThreshold = findViewById(R.id.sliderLineThreshold);
+        btnLineStart = findViewById(R.id.btnLineStart);
+
+        btnClapMic = findViewById(R.id.btnClapMic);
+        tvClapStatus = findViewById(R.id.tvClapStatus);
+        tvClapCount = findViewById(R.id.tvClapCount);
+
+        btnMusicStart = findViewById(R.id.btnMusicStart);
+        tvMusicStatus = findViewById(R.id.tvMusicStatus);
+        visualizerView = findViewById(R.id.visualizerView);
+
+        drawPathView = findViewById(R.id.drawPathView);
+        btnDrawPlay = findViewById(R.id.btnDrawPlay);
+        btnDrawClear = findViewById(R.id.btnDrawClear);
+        tvDrawStatus = findViewById(R.id.tvDrawStatus);
+
+        btnNavLine = findViewById(R.id.btnNavLine);
+        btnNavClap = findViewById(R.id.btnNavClap);
+        btnNavMusic = findViewById(R.id.btnNavMusic);
+        btnNavDraw = findViewById(R.id.btnNavDraw);
     }
 
     // ==========================================
@@ -190,6 +274,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         btnNavBody.setOnClickListener(v -> switchMode("Body"));
         btnNavGyro.setOnClickListener(v -> switchMode("Gyro"));
         btnNavVoice.setOnClickListener(v -> switchMode("Voice"));
+        btnNavLine.setOnClickListener(v -> switchMode("Line"));
+        btnNavClap.setOnClickListener(v -> switchMode("Clap"));
+        btnNavMusic.setOnClickListener(v -> switchMode("Music"));
+        btnNavDraw.setOnClickListener(v -> switchMode("Draw"));
 
         // D-PAD
         View.OnTouchListener dpad = (v, event) -> {
@@ -250,6 +338,43 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             lblRecognizedText.setText("");
             lblConfidence.setText("");
         });
+
+        // LINE FOLLOWER
+        sliderLineThreshold.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int p, boolean u) { lineThreshold = p; }
+            @Override public void onStartTrackingTouch(SeekBar s) {}
+            @Override public void onStopTrackingTouch(SeekBar s) {}
+        });
+        btnLineStart.setOnClickListener(v -> {
+            if (isLineTracking) {
+                stopLineTracking();
+                btnLineStart.setText("START TRACKING");
+                btnLineStart.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
+            } else {
+                startLineTracking();
+                btnLineStart.setText("STOP TRACKING");
+                btnLineStart.setBackgroundTintList(getResources().getColorStateList(R.color.status_red, null));
+            }
+        });
+
+        // CLAP CONTROL
+        btnClapMic.setOnClickListener(v -> {
+            if (isClapActive) stopClapListener();
+            else startClapListener();
+        });
+
+        // MUSIC RHYTHM
+        btnMusicStart.setOnClickListener(v -> {
+            if (isMusicActive) stopMusicListener();
+            else startMusicListener();
+        });
+
+        // DRAW PATH
+        btnDrawPlay.setOnClickListener(v -> playDrawPath());
+        btnDrawClear.setOnClickListener(v -> {
+            drawPathView.clearPath();
+            tvDrawStatus.setText("DRAW A PATH WITH YOUR FINGER");
+        });
     }
 
     // ==========================================
@@ -277,10 +402,27 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED)
             perms.add(Manifest.permission.RECORD_AUDIO);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED)
+            perms.add(Manifest.permission.CAMERA);
 
         if (!perms.isEmpty())
             ActivityCompat.requestPermissions(this, perms.toArray(new String[0]),
                 PERMISSION_REQUEST_CODE);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                             @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            for (int i = 0; i < permissions.length; i++) {
+                if (permissions[i].equals(Manifest.permission.CAMERA) &&
+                    grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    // Camera permission granted, can init if needed
+                }
+            }
+        }
     }
 
     // ==========================================
@@ -376,19 +518,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         lblConfidence.setText("Confidence: " + pct + "%");
 
         if (bestScore >= 0.7) {
-            // ACCEPT
             sendCommand(best);
             showVoiceResult("// COMMAND: " + intentLabel(best), true);
 
         } else if (bestScore >= 0.4) {
-            // CONFIRM
             pendingIntent = best;
             lblConfirmQuestion.setText("Did you mean: " + intentLabel(best) + " ?");
             layoutConfirm.setVisibility(View.VISIBLE);
             lblVoiceStatus.setText("// CONFIRM COMMAND");
 
         } else {
-            // REJECT
             showVoiceResult("// NOT RECOGNIZED", false);
         }
     }
@@ -457,11 +596,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         BiometricManager biometricManager = BiometricManager.from(this);
 
-        // Check for strong biometric first (fingerprint)
         int canAuthStrong = biometricManager.canAuthenticate(
             BiometricManager.Authenticators.BIOMETRIC_STRONG);
-
-        // Check for weak biometric (face recognition on some devices)
         int canAuthWeak = biometricManager.canAuthenticate(
             BiometricManager.Authenticators.BIOMETRIC_WEAK);
 
@@ -512,10 +648,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             .setDescription("Use your fingerprint or face recognition to authenticate");
 
         if (canAuthStrong == BiometricManager.BIOMETRIC_SUCCESS) {
-            // Strong biometric available - use it without device credential fallback
             promptBuilder.setNegativeButtonText("Cancel");
         } else {
-            // Only weak available (face) - allow device credential as fallback for security
             promptBuilder.setDeviceCredentialAllowed(true);
         }
 
@@ -549,7 +683,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         lvDevices.setAdapter(new ArrayAdapter<>(this,
             android.R.layout.simple_list_item_1, nameList));
         lvDevices.setOnItemClickListener((p, v, pos, id) -> {
-            // SECURITY: Require biometric auth before connecting
             showBiometricAuth(devList.get(pos));
         });
         btnDisconnect.setOnClickListener(v -> {
@@ -611,9 +744,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         layoutBody.setVisibility(View.GONE);
         layoutGyro.setVisibility(View.GONE);
         layoutVoice.setVisibility(View.GONE);
+        layoutLine.setVisibility(View.GONE);
+        layoutClap.setVisibility(View.GONE);
+        layoutMusic.setVisibility(View.GONE);
+        layoutDraw.setVisibility(View.GONE);
+
         isGyroActive = false;
         if (sensorManager != null) sensorManager.unregisterListener(this);
         if (isListening) stopListening();
+        if (isLineTracking) stopLineTracking();
+        if (isClapActive) stopClapListener();
+        if (isMusicActive) stopMusicListener();
 
         switch (mode) {
             case "Manual":
@@ -643,6 +784,31 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 lblVoiceStatus.setText("PRESS TO SPEAK");
                 lblRecognizedText.setText("");
                 lblConfidence.setText("");
+                break;
+            case "Line":
+                sendCommand("LIN");
+                layoutLine.setVisibility(View.VISIBLE);
+                tvModeLabel.setText("// MODE: LINE FOLLOWER");
+                tvLineStatus.setText("// POINT CAMERA AT LINE");
+                break;
+            case "Clap":
+                sendCommand("CLP");
+                layoutClap.setVisibility(View.VISIBLE);
+                tvModeLabel.setText("// MODE: CLAP CONTROL");
+                tvClapStatus.setText("TAP TO ACTIVATE");
+                tvClapCount.setText("");
+                break;
+            case "Music":
+                sendCommand("MUS");
+                layoutMusic.setVisibility(View.VISIBLE);
+                tvModeLabel.setText("// MODE: MUSIC RHYTHM");
+                tvMusicStatus.setText("TAP TO START");
+                break;
+            case "Draw":
+                sendCommand("DRW");
+                layoutDraw.setVisibility(View.VISIBLE);
+                tvModeLabel.setText("// MODE: DRAW PATH");
+                tvDrawStatus.setText("DRAW A PATH WITH YOUR FINGER");
                 break;
         }
     }
@@ -675,6 +841,429 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     @Override public void onAccuracyChanged(Sensor s, int a) {}
 
     // ==========================================
+    // 📷 MODE 4 — LINE FOLLOWER (CameraX)
+    // ==========================================
+    private void startLineTracking() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        isLineTracking = true;
+        tvLineStatus.setText("// TRACKING ACTIVE");
+
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture =
+            ProcessCameraProvider.getInstance(this);
+        cameraProviderFuture.addListener(() -> {
+            try {
+                cameraProvider = cameraProviderFuture.get();
+                Preview preview = new Preview.Builder().build();
+                preview.setSurfaceProvider(previewLine.getSurfaceProvider());
+
+                ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build();
+                imageAnalysis.setAnalyzer(cameraExecutor, new LineAnalyzer());
+
+                CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+                cameraProvider.unbindAll();
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                runOnUiThread(() -> tvLineStatus.setText("// CAMERA ERROR"));
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    private void stopLineTracking() {
+        isLineTracking = false;
+        tvLineStatus.setText("// POINT CAMERA AT LINE");
+        if (cameraProvider != null) {
+            cameraProvider.unbindAll();
+        }
+    }
+
+    private class LineAnalyzer implements ImageAnalysis.Analyzer {
+        @Override
+        public void analyze(@NonNull ImageProxy image) {
+            if (!isLineTracking) {
+                image.close();
+                return;
+            }
+
+            ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
+            int width = image.getWidth();
+            int height = image.getHeight();
+            int rowStride = image.getPlanes()[0].getRowStride();
+
+            // Analyze bottom 40% of image (where line is closest)
+            int startY = height * 6 / 10;
+            int sumX = 0;
+            int count = 0;
+
+            for (int y = startY; y < height; y += 2) {
+                for (int x = 0; x < width; x += 4) {
+                    int gray = yBuffer.get(y * rowStride + x) & 0xFF;
+                    if (gray < lineThreshold) {
+                        sumX += x;
+                        count++;
+                    }
+                }
+            }
+
+            if (count > 50) {
+                int centerX = sumX / count;
+                int imageCenter = width / 2;
+                int tolerance = width / 8;
+                final String cmd;
+                final String status;
+
+                if (centerX < imageCenter - tolerance) {
+                    cmd = "L"; status = "LINE LEFT → TURN LEFT";
+                } else if (centerX > imageCenter + tolerance) {
+                    cmd = "R"; status = "LINE RIGHT → TURN RIGHT";
+                } else {
+                    cmd = "F"; status = "LINE CENTER → FORWARD";
+                }
+
+                runOnUiThread(() -> {
+                    sendCommand(cmd);
+                    tvLineStatus.setText("// " + status);
+                });
+            } else {
+                runOnUiThread(() -> {
+                    sendCommand("S");
+                    tvLineStatus.setText("// NO LINE DETECTED");
+                });
+            }
+
+            image.close();
+        }
+    }
+
+    // ==========================================
+    // 👏 MODE 5 — CLAP CONTROL (AudioRecord)
+    // ==========================================
+    private void startClapListener() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        isClapActive = true;
+        btnClapMic.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
+        tvClapStatus.setText("// LISTENING FOR CLAPS...");
+        clapCount = 0;
+
+        int sampleRate = 44100;
+        int bufferSize = AudioRecord.getMinBufferSize(sampleRate,
+            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+        if (bufferSize < 1024) bufferSize = 1024;
+
+        clapAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
+            sampleRate, AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+
+        final short[] buffer = new short[bufferSize];
+        clapAudioRecord.startRecording();
+
+        clapThread = new Thread(() -> {
+            long clapWindowStart = 0;
+            int windowClaps = 0;
+
+            while (isClapActive && clapAudioRecord != null) {
+                int read = clapAudioRecord.read(buffer, 0, bufferSize);
+                if (read <= 0) continue;
+
+                double rms = calculateRMS(buffer, read);
+                if (rms > CLAP_THRESHOLD) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastClapTime > 250) { // debounce 250ms
+                        lastClapTime = now;
+
+                        if (clapWindowStart == 0 || now - clapWindowStart > 1200) {
+                            clapWindowStart = now;
+                            windowClaps = 1;
+                        } else {
+                            windowClaps++;
+                        }
+
+                        final int currentWindowClaps = windowClaps;
+                        runOnUiThread(() -> {
+                            tvClapCount.setText("CLAPS: " + currentWindowClaps);
+                        });
+
+                        // Execute command after window expires or on 3 claps
+                        if (windowClaps >= 3) {
+                            executeClapCommand(windowClaps);
+                            clapWindowStart = 0;
+                            windowClaps = 0;
+                        } else {
+                            // Schedule check after window
+                            handler.postDelayed(() -> {
+                                if (isClapActive && System.currentTimeMillis() - clapWindowStart >= 1000) {
+                                    executeClapCommand(currentWindowClaps);
+                                }
+                            }, 1100);
+                        }
+                    }
+                }
+            }
+        });
+        clapThread.start();
+    }
+
+    private void stopClapListener() {
+        isClapActive = false;
+        btnClapMic.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
+        tvClapStatus.setText("TAP TO ACTIVATE CLAP LISTENER");
+        tvClapCount.setText("");
+        if (clapAudioRecord != null) {
+            clapAudioRecord.stop();
+            clapAudioRecord.release();
+            clapAudioRecord = null;
+        }
+    }
+
+    private void executeClapCommand(int claps) {
+        String cmd;
+        String label;
+        switch (claps) {
+            case 1: cmd = "S"; label = "STOP"; break;
+            case 2: cmd = "F"; label = "FORWARD"; break;
+            case 3: cmd = "B"; label = "BACKWARD"; break;
+            default: cmd = "S"; label = "STOP"; break;
+        }
+        sendCommand(cmd);
+        runOnUiThread(() -> tvClapStatus.setText("// " + label + " (" + claps + " claps)"));
+    }
+
+    private double calculateRMS(short[] buffer, int length) {
+        double sum = 0;
+        for (int i = 0; i < length; i++) {
+            sum += buffer[i] * buffer[i];
+        }
+        return Math.sqrt(sum / length);
+    }
+
+    // ==========================================
+    // 🎵 MODE 6 — MUSIC RHYTHM (Beat Detection)
+    // ==========================================
+    private void startMusicListener() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        isMusicActive = true;
+        btnMusicStart.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
+        tvMusicStatus.setText("// LISTENING TO BEATS...");
+
+        int sampleRate = 44100;
+        int bufferSize = AudioRecord.getMinBufferSize(sampleRate,
+            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+        if (bufferSize < 2048) bufferSize = 2048;
+
+        musicAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
+            sampleRate, AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+
+        final short[] buffer = new short[bufferSize];
+        musicAudioRecord.startRecording();
+
+        musicThread = new Thread(() -> {
+            double prevEnergy = 0;
+            int beatCount = 0;
+
+            while (isMusicActive && musicAudioRecord != null) {
+                int read = musicAudioRecord.read(buffer, 0, bufferSize);
+                if (read <= 0) continue;
+
+                double energy = calculateRMS(buffer, read);
+                double flux = energy - prevEnergy;
+                prevEnergy = energy;
+
+                // Update visualizer
+                final float barHeight = Math.min(60f, (float)(energy / 100));
+                runOnUiThread(() -> {
+                    visualizerView.setScaleY(barHeight / 60f);
+                    visualizerView.setAlpha(0.5f + (barHeight / 120f));
+                });
+
+                // Beat detection: energy flux above threshold
+                if (flux > 1500 && energy > 2000) {
+                    beatCount++;
+                    final int currentBeat = beatCount;
+                    runOnUiThread(() -> {
+                        tvMusicStatus.setText("// BEAT #" + currentBeat);
+                        // Dance pattern: F on every beat, L-R on every 4th
+                        if (currentBeat % 4 == 0) {
+                            sendCommand("R");
+                            handler.postDelayed(() -> sendCommand("L"), 200);
+                            handler.postDelayed(() -> sendCommand("F"), 400);
+                        } else {
+                            sendCommand("F");
+                        }
+                    });
+
+                    // Debounce between beats
+                    try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+                }
+            }
+        });
+        musicThread.start();
+    }
+
+    private void stopMusicListener() {
+        isMusicActive = false;
+        btnMusicStart.setBackgroundTintList(getResources().getColorStateList(R.color.button_dark, null));
+        tvMusicStatus.setText("TAP TO START RHYTHM MODE");
+        visualizerView.setScaleY(1f);
+        visualizerView.setAlpha(1f);
+        if (musicAudioRecord != null) {
+            musicAudioRecord.stop();
+            musicAudioRecord.release();
+            musicAudioRecord = null;
+        }
+    }
+
+    // ==========================================
+    // ✏️ MODE 7 — DRAW PATH
+    // ==========================================
+    private void playDrawPath() {
+        List<PointF> points = drawPathView.getPoints();
+        if (points.size() < 2) {
+            tvDrawStatus.setText("DRAW SOMETHING FIRST!");
+            return;
+        }
+        if (isDrawingPlaying) return;
+        isDrawingPlaying = true;
+        tvDrawStatus.setText("// PLAYING PATH...");
+
+        new Thread(() -> {
+            // Simplify: sample every Nth point
+            int step = Math.max(1, points.size() / 50);
+            List<PointF> simplified = new ArrayList<>();
+            for (int i = 0; i < points.size(); i += step) {
+                simplified.add(points.get(i));
+            }
+            if (simplified.size() < 2) simplified = points;
+
+            for (int i = 1; i < simplified.size(); i++) {
+                PointF prev = simplified.get(i - 1);
+                PointF curr = simplified.get(i);
+
+                float dx = curr.x - prev.x;
+                float dy = curr.y - prev.y;
+                float dist = (float) Math.sqrt(dx * dx + dy * dy);
+                float angle = (float) Math.toDegrees(Math.atan2(dy, dx));
+
+                // Adjust: -90 is "up" (forward) on screen
+                float adjusted = angle + 90;
+                if (adjusted > 180) adjusted -= 360;
+                if (adjusted < -180) adjusted += 360;
+
+                String cmd;
+                int duration;
+                if (Math.abs(adjusted) < 25) {
+                    cmd = "F";
+                    duration = (int)(dist * 8); // ms per pixel
+                } else if (adjusted > 25) {
+                    cmd = "R";
+                    duration = (int)(Math.abs(adjusted) * 6);
+                } else {
+                    cmd = "L";
+                    duration = (int)(Math.abs(adjusted) * 6);
+                }
+
+                final String fCmd = cmd;
+                final int fDur = Math.min(duration, 800);
+                final int progress = i;
+                final int total = simplified.size();
+
+                runOnUiThread(() -> {
+                    sendCommand(fCmd);
+                    tvDrawStatus.setText("// STEP " + progress + "/" + total + " → " + fCmd);
+                });
+
+                try { Thread.sleep(fDur); } catch (InterruptedException ignored) {}
+            }
+
+            runOnUiThread(() -> {
+                sendCommand("S");
+                tvDrawStatus.setText("// PATH COMPLETE");
+                isDrawingPlaying = false;
+            });
+        }).start();
+    }
+
+    // ==========================================
+    // 🎨 CUSTOM DRAW PATH VIEW
+    // ==========================================
+    public static class DrawPathView extends View {
+        private Path path = new Path();
+        private Paint paint;
+        private List<PointF> points = new ArrayList<>();
+
+        public DrawPathView(Context context) {
+            super(context);
+            init();
+        }
+        public DrawPathView(Context context, android.util.AttributeSet attrs) {
+            super(context, attrs);
+            init();
+        }
+        private void init() {
+            paint = new Paint();
+            paint.setColor(Color.GREEN);
+            paint.setStrokeWidth(8f);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            paint.setAntiAlias(true);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            canvas.drawColor(Color.parseColor("#1a1a2e"));
+            if (!path.isEmpty()) {
+                canvas.drawPath(path, paint);
+            }
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            float x = event.getX();
+            float y = event.getY();
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    path.moveTo(x, y);
+                    points.add(new PointF(x, y));
+                    invalidate();
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    path.lineTo(x, y);
+                    points.add(new PointF(x, y));
+                    invalidate();
+                    return true;
+            }
+            return false;
+        }
+
+        public void clearPath() {
+            path.reset();
+            points.clear();
+            invalidate();
+        }
+
+        public List<PointF> getPoints() {
+            return new ArrayList<>(points);
+        }
+    }
+
+    // ==========================================
     // LIFECYCLE
     // ==========================================
     @Override
@@ -686,5 +1275,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             speechRecognizer.stopListening();
             speechRecognizer.destroy();
         }
+        if (isLineTracking) stopLineTracking();
+        if (isClapActive) stopClapListener();
+        if (isMusicActive) stopMusicListener();
+        if (cameraExecutor != null) cameraExecutor.shutdown();
     }
 }
