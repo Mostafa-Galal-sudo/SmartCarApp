@@ -31,8 +31,12 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -43,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
@@ -65,6 +70,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private Dialog bluetoothDialog;
 
+    // ===== BIOMETRIC SECURITY =====
+    private BluetoothDevice pendingAuthDevice = null;
+
     // ===== COMMAND =====
     private String lastCmd = "";
     private boolean cmdDelayActive = false;
@@ -83,29 +91,29 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private String pendingIntent = "";
 
     // ===== DICTIONARIES =====
-    private static final List<String> DICT_F = Arrays.asList(
+    private static final List DICT_F = Arrays.asList(
         "forward", "go", "ahead", "move", "drive", "straight", "fwd",
         "emshi", "قدام", "تحرك", "امشي", "يلا", "روح", "هيا"
     );
-    private static final List<String> DICT_B = Arrays.asList(
+    private static final List DICT_B = Arrays.asList(
         "back", "backward", "reverse", "return",
         "ارجع", "ورا", "خلف", "رجوع", "تراجع"
     );
-    private static final List<String> DICT_R = Arrays.asList(
+    private static final List DICT_R = Arrays.asList(
         "right", "turn right",
         "يمين", "لف يمين", "الى اليمين"
     );
-    private static final List<String> DICT_L = Arrays.asList(
+    private static final List DICT_L = Arrays.asList(
         "left", "turn left",
         "شمال", "يسار", "لف شمال", "لف يسار"
     );
-    private static final List<String> DICT_S = Arrays.asList(
+    private static final List DICT_S = Arrays.asList(
         "stop", "halt", "freeze", "wait", "pause",
         "قف", "اوقف", "بطل", "وقف", "استنى", "انتظر"
     );
 
     private static final int PERMISSION_REQUEST_CODE = 101;
-    private static final int VOICE_PERMISSION_CODE   = 102;
+    private static final int VOICE_PERMISSION_CODE = 102;
 
     // ==========================================
     @Override
@@ -135,38 +143,38 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     // INIT UI
     // ==========================================
     private void initUI() {
-        tvModeLabel       = findViewById(R.id.tvModeLabel);
+        tvModeLabel = findViewById(R.id.tvModeLabel);
         tvStatusIndicator = findViewById(R.id.tvStatusIndicator);
-        lblBodyStatus     = findViewById(R.id.lblBodyStatus);
-        lblGyroStatus     = findViewById(R.id.lblGyroStatus);
-        lblVoiceStatus    = findViewById(R.id.lblVoiceStatus);
+        lblBodyStatus = findViewById(R.id.lblBodyStatus);
+        lblGyroStatus = findViewById(R.id.lblGyroStatus);
+        lblVoiceStatus = findViewById(R.id.lblVoiceStatus);
         lblRecognizedText = findViewById(R.id.lblRecognizedText);
-        lblConfidence     = findViewById(R.id.lblConfidence);
+        lblConfidence = findViewById(R.id.lblConfidence);
         lblConfirmQuestion= findViewById(R.id.lblConfirmQuestion);
-        layoutConfirm     = findViewById(R.id.layoutConfirm);
+        layoutConfirm = findViewById(R.id.layoutConfirm);
 
         layoutManual = findViewById(R.id.layoutManual);
-        layoutBody   = findViewById(R.id.layoutBody);
-        layoutGyro   = findViewById(R.id.layoutGyro);
-        layoutVoice  = findViewById(R.id.layoutVoice);
+        layoutBody = findViewById(R.id.layoutBody);
+        layoutGyro = findViewById(R.id.layoutGyro);
+        layoutVoice = findViewById(R.id.layoutVoice);
 
         btnOpenBluetooth = findViewById(R.id.btnOpenBluetooth);
-        btnNavManual     = findViewById(R.id.btnNavManual);
-        btnNavBody       = findViewById(R.id.btnNavBody);
-        btnNavGyro       = findViewById(R.id.btnNavGyro);
-        btnNavVoice      = findViewById(R.id.btnNavVoice);
+        btnNavManual = findViewById(R.id.btnNavManual);
+        btnNavBody = findViewById(R.id.btnNavBody);
+        btnNavGyro = findViewById(R.id.btnNavGyro);
+        btnNavVoice = findViewById(R.id.btnNavVoice);
 
-        btnFwd          = findViewById(R.id.btnFwd);
-        btnBack         = findViewById(R.id.btnBack);
-        btnLeft         = findViewById(R.id.btnLeft);
-        btnRight        = findViewById(R.id.btnRight);
-        btnStop         = findViewById(R.id.btnStop);
-        btnAuto         = findViewById(R.id.btnAuto);
-        btnMan          = findViewById(R.id.btnMan);
+        btnFwd = findViewById(R.id.btnFwd);
+        btnBack = findViewById(R.id.btnBack);
+        btnLeft = findViewById(R.id.btnLeft);
+        btnRight = findViewById(R.id.btnRight);
+        btnStop = findViewById(R.id.btnStop);
+        btnAuto = findViewById(R.id.btnAuto);
+        btnMan = findViewById(R.id.btnMan);
         btnBodyActivate = findViewById(R.id.btnBodyActivate);
-        btnMic          = findViewById(R.id.btnMic);
-        btnConfirmYes   = findViewById(R.id.btnConfirmYes);
-        btnConfirmNo    = findViewById(R.id.btnConfirmNo);
+        btnMic = findViewById(R.id.btnMic);
+        btnConfirmYes = findViewById(R.id.btnConfirmYes);
+        btnConfirmNo = findViewById(R.id.btnConfirmNo);
 
         sliderSensitivity = findViewById(R.id.sliderSensitivity);
     }
@@ -179,17 +187,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         btnOpenBluetooth.setOnClickListener(v -> showBluetoothDialog());
 
         btnNavManual.setOnClickListener(v -> switchMode("Manual"));
-        btnNavBody.setOnClickListener(v   -> switchMode("Body"));
-        btnNavGyro.setOnClickListener(v   -> switchMode("Gyro"));
-        btnNavVoice.setOnClickListener(v  -> switchMode("Voice"));
+        btnNavBody.setOnClickListener(v -> switchMode("Body"));
+        btnNavGyro.setOnClickListener(v -> switchMode("Gyro"));
+        btnNavVoice.setOnClickListener(v -> switchMode("Voice"));
 
         // D-PAD
         View.OnTouchListener dpad = (v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 int id = v.getId();
-                if      (id == R.id.btnFwd)   sendCommand("F");
-                else if (id == R.id.btnBack)  sendCommand("B");
-                else if (id == R.id.btnLeft)  sendCommand("L");
+                if (id == R.id.btnFwd) sendCommand("F");
+                else if (id == R.id.btnBack) sendCommand("B");
+                else if (id == R.id.btnLeft) sendCommand("L");
                 else if (id == R.id.btnRight) sendCommand("R");
             } else if (event.getAction() == MotionEvent.ACTION_UP ||
                        event.getAction() == MotionEvent.ACTION_CANCEL) {
@@ -204,7 +212,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         btnStop.setOnClickListener(v -> sendCommand("S"));
         btnAuto.setOnClickListener(v -> sendCommand("A"));
-        btnMan.setOnClickListener(v  -> sendCommand("M"));
+        btnMan.setOnClickListener(v -> sendCommand("M"));
 
         // Body
         btnBodyActivate.setOnClickListener(v -> {
@@ -222,7 +230,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // Voice mic button
         btnMic.setOnClickListener(v -> {
             if (isListening) stopListening();
-            else             startListening();
+            else startListening();
         });
 
         // Confirmation buttons
@@ -257,22 +265,22 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     // PERMISSIONS
     // ==========================================
     private void checkPermissions() {
-        List<String> perms = new ArrayList<>();
+        List perms = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
-                    != PackageManager.PERMISSION_GRANTED)
+                != PackageManager.PERMISSION_GRANTED)
                 perms.add(Manifest.permission.BLUETOOTH_CONNECT);
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
-                    != PackageManager.PERMISSION_GRANTED)
+                != PackageManager.PERMISSION_GRANTED)
                 perms.add(Manifest.permission.BLUETOOTH_SCAN);
         }
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED)
+            != PackageManager.PERMISSION_GRANTED)
             perms.add(Manifest.permission.RECORD_AUDIO);
 
         if (!perms.isEmpty())
             ActivityCompat.requestPermissions(this, perms.toArray(new String[0]),
-                    PERMISSION_REQUEST_CODE);
+                PERMISSION_REQUEST_CODE);
     }
 
     // ==========================================
@@ -286,7 +294,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onReadyForSpeech(Bundle p)  {
+            @Override public void onReadyForSpeech(Bundle p) {
                 lblVoiceStatus.setText("// LISTENING...");
                 btnMic.setBackgroundTintList(
                     getResources().getColorStateList(R.color.status_green, null));
@@ -309,7 +317,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 lblConfidence.setText("");
             }
             @Override public void onResults(Bundle results) {
-                List<String> matches = results.getStringArrayList(
+                List matches = results.getStringArrayList(
                     SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches != null && !matches.isEmpty())
                     handleVoiceResult(matches.get(0));
@@ -348,7 +356,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         String text = normalizeText(raw);
         lblRecognizedText.setText("\"" + raw + "\"");
 
-        Map<String, Double> scores = new HashMap<>();
+        Map scores = new HashMap<>();
         scores.put("F", matchScore(text, DICT_F));
         scores.put("B", matchScore(text, DICT_B));
         scores.put("R", matchScore(text, DICT_R));
@@ -357,7 +365,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         String best = "S";
         double bestScore = 0;
-        for (Map.Entry<String, Double> e : scores.entrySet()) {
+        for (Map.Entry e : scores.entrySet()) {
             if (e.getValue() > bestScore) {
                 bestScore = e.getValue();
                 best = e.getKey();
@@ -404,7 +412,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             case "R": return "RIGHT";
             case "L": return "LEFT";
             case "S": return "STOP";
-            default:  return cmd;
+            default: return cmd;
         }
     }
 
@@ -413,16 +421,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     // ==========================================
     private String normalizeText(String input) {
         return input.toLowerCase()
-            .replaceAll("[^a-zA-Z\u0600-\u06FF ]", "")
+            .replaceAll("[^a-zA-Z\\u0600-\\u06FF ]", "")
             .replaceAll("\\s+", " ")
             .trim();
     }
 
-    private double matchScore(String input, List<String> dict) {
+    private double matchScore(String input, List dict) {
         double best = 0;
         for (String word : dict) {
-            if (input.equals(word))          return 1.0;
-            if (input.contains(word))        best = Math.max(best, 0.7);
+            if (input.equals(word)) return 1.0;
+            if (input.contains(word)) best = Math.max(best, 0.7);
             if (levenshtein(input, word) <= 2) best = Math.max(best, 0.6);
         }
         return best;
@@ -442,6 +450,80 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     // ==========================================
+    // BIOMETRIC AUTHENTICATION (SECURITY LAYER)
+    // ==========================================
+    private void showBiometricAuth(BluetoothDevice device) {
+        pendingAuthDevice = device;
+
+        BiometricManager biometricManager = BiometricManager.from(this);
+
+        // Check for strong biometric first (fingerprint)
+        int canAuthStrong = biometricManager.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG);
+
+        // Check for weak biometric (face recognition on some devices)
+        int canAuthWeak = biometricManager.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_WEAK);
+
+        if (canAuthStrong != BiometricManager.BIOMETRIC_SUCCESS &&
+            canAuthWeak != BiometricManager.BIOMETRIC_SUCCESS) {
+            Toast.makeText(this,
+                "Biometric authentication not available. Please enroll fingerprint or face unlock in Settings.",
+                Toast.LENGTH_LONG).show();
+            pendingAuthDevice = null;
+            return;
+        }
+
+        Executor executor = ContextCompat.getMainExecutor(this);
+        BiometricPrompt biometricPrompt = new BiometricPrompt(this, executor,
+            new BiometricPrompt.AuthenticationCallback() {
+                @Override
+                public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
+                    super.onAuthenticationError(errorCode, errString);
+                    Toast.makeText(getApplicationContext(),
+                        "Authentication error: " + errString, Toast.LENGTH_SHORT).show();
+                    pendingAuthDevice = null;
+                }
+
+                @Override
+                public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
+                    super.onAuthenticationSucceeded(result);
+                    if (pendingAuthDevice != null) {
+                        connectToDevice(pendingAuthDevice);
+                        if (bluetoothDialog != null && bluetoothDialog.isShowing()) {
+                            bluetoothDialog.dismiss();
+                        }
+                        pendingAuthDevice = null;
+                    }
+                }
+
+                @Override
+                public void onAuthenticationFailed() {
+                    super.onAuthenticationFailed();
+                    Toast.makeText(getApplicationContext(),
+                        "Authentication failed. Try again.", Toast.LENGTH_SHORT).show();
+                    pendingAuthDevice = null;
+                }
+            });
+
+        BiometricPrompt.PromptInfo.Builder promptBuilder = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Smart Car Security")
+            .setSubtitle("Verify your identity to connect to the car")
+            .setDescription("Use your fingerprint or face recognition to authenticate");
+
+        if (canAuthStrong == BiometricManager.BIOMETRIC_SUCCESS) {
+            // Strong biometric available - use it without device credential fallback
+            promptBuilder.setNegativeButtonText("Cancel");
+        } else {
+            // Only weak available (face) - allow device credential as fallback for security
+            promptBuilder.setDeviceCredentialAllowed(true);
+        }
+
+        BiometricPrompt.PromptInfo promptInfo = promptBuilder.build();
+        biometricPrompt.authenticate(promptInfo);
+    }
+
+    // ==========================================
     // BLUETOOTH
     // ==========================================
     @SuppressLint("MissingPermission")
@@ -453,12 +535,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         bluetoothDialog = new Dialog(this);
         bluetoothDialog.setContentView(R.layout.dialog_bluetooth_devices);
 
-        ListView lvDevices    = bluetoothDialog.findViewById(R.id.lvDevices);
-        Button btnDisconnect  = bluetoothDialog.findViewById(R.id.btnDisconnect);
+        ListView lvDevices = bluetoothDialog.findViewById(R.id.lvDevices);
+        Button btnDisconnect = bluetoothDialog.findViewById(R.id.btnDisconnect);
 
-        Set<BluetoothDevice> paired = bluetoothAdapter.getBondedDevices();
-        List<String> nameList = new ArrayList<>();
-        List<BluetoothDevice> devList = new ArrayList<>();
+        Set paired = bluetoothAdapter.getBondedDevices();
+        List nameList = new ArrayList<>();
+        List devList = new ArrayList<>();
         for (BluetoothDevice d : paired) {
             nameList.add(d.getName() + "\n" + d.getAddress());
             devList.add(d);
@@ -467,8 +549,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         lvDevices.setAdapter(new ArrayAdapter<>(this,
             android.R.layout.simple_list_item_1, nameList));
         lvDevices.setOnItemClickListener((p, v, pos, id) -> {
-            connectToDevice(devList.get(pos));
-            bluetoothDialog.dismiss();
+            // SECURITY: Require biometric auth before connecting
+            showBiometricAuth(devList.get(pos));
         });
         btnDisconnect.setOnClickListener(v -> {
             handleDisconnect();
@@ -484,7 +566,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 bluetoothSocket = device.createRfcommSocketToServiceRecord(SPP_UUID);
                 bluetoothSocket.connect();
                 outputStream = bluetoothSocket.getOutputStream();
-                isConnected  = true;
+                isConnected = true;
                 runOnUiThread(() -> {
                     tvStatusIndicator.setTextColor(Color.GREEN);
                     Toast.makeText(this, "Connected", Toast.LENGTH_SHORT).show();
@@ -577,14 +659,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         float avgX = (r1x + r2x + r3x) / 3f;
         float avgY = (r1y + r2y + r3y) / 3f;
-        float thr  = threshold / 5.0f;
+        float thr = threshold / 5.0f;
 
         String target, status;
-        if      (avgY >  thr) { target = "F"; status = "Forward";   }
-        else if (avgY < -thr) { target = "B"; status = "Backward";  }
-        else if (avgX >  thr) { target = "R"; status = "Right";     }
-        else if (avgX < -thr) { target = "L"; status = "Left";      }
-        else                  { target = "S"; status = "Stop / Flat";}
+        if (avgY > thr) { target = "F"; status = "Forward"; }
+        else if (avgY < -thr) { target = "B"; status = "Backward"; }
+        else if (avgX > thr) { target = "R"; status = "Right"; }
+        else if (avgX < -thr) { target = "L"; status = "Left"; }
+        else { target = "S"; status = "Stop / Flat";}
 
         lblGyroStatus.setText(status);
         if (!target.equals(lastCmd)) sendCommand(target);
