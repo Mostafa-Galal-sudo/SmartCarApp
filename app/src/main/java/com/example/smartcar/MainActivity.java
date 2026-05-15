@@ -55,11 +55,18 @@ import androidx.core.content.ContextCompat;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.java_websocket.WebSocket;
+import org.java_websocket.handshake.ClientHandshake;
+import org.java_websocket.server.WebSocketServer;
+
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,6 +107,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothSocket bluetoothSocket;
     private OutputStream outputStream;
+    private InputStream inputStream;           // ← NEW: لقراءة بيانات الأردوينو
+    private Thread arduinoReaderThread;        // ← NEW: thread قراءة مستمر
     private boolean isConnected = false;
     private final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private Dialog bluetoothDialog;
@@ -149,6 +158,21 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     // ===== DRAW PATH =====
     private boolean isDrawingPlaying = false;
 
+    // ===== WEBSOCKET SERVER BRIDGE =====   ← NEW
+    private SmartCarWSServer wsServer;
+    private static final int WS_PORT = 8080;
+
+    // Telemetry state (updated from Arduino, sent to Dashboard)
+    private int teleDist_F = 999;
+    private int teleDist_L = 999;
+    private int teleDist_R = 999;
+    private int teleMotor_L = 0;
+    private int teleMotor_R = 0;
+    private String teleFollowerState = "SCANNING";
+    private int teleLockedAngle = 90;
+    private String teleMode = "IDLE";
+    private String teleSubMode = "";
+
     // ===== DICTIONARIES =====
     private static final List<String> DICT_F = Arrays.asList(
         "forward", "go", "ahead", "move", "drive", "straight", "fwd",
@@ -188,6 +212,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
             cameraExecutor = Executors.newSingleThreadExecutor();
 
+            // ── Start WebSocket Bridge Server ──────────────────────
+            startWebSocketServer();
+
             // Connection safety checker
             handler.post(new Runnable() {
                 @Override public void run() {
@@ -203,6 +230,170 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     // ==========================================
+    // WEBSOCKET SERVER (Bridge)
+    // ==========================================
+
+    /**
+     * WebSocket Server يشتغل على بورت 8080.
+     * - لما الداشبورد يبعت أمر (F, B, L, R, S ...) → يتبعت للأردوينو عبر Bluetooth.
+     * - لما الأردوينو يبعت telemetry → يتبعت JSON لكل الداشبوردات المتصلة.
+     */
+    private class SmartCarWSServer extends WebSocketServer {
+
+        SmartCarWSServer(int port) {
+            super(new InetSocketAddress(port));
+            setReuseAddr(true);
+        }
+
+        @Override
+        public void onOpen(WebSocket conn, ClientHandshake handshake) {
+            Log.i(TAG, "WS Dashboard connected: " + conn.getRemoteSocketAddress());
+            // أبعت الحالة الحالية فور الاتصال
+            conn.send(buildTelemetryJson());
+        }
+
+        @Override
+        public void onClose(WebSocket conn, int code, String reason, boolean remote) {
+            Log.i(TAG, "WS Dashboard disconnected");
+        }
+
+        @Override
+        public void onMessage(WebSocket conn, String message) {
+            // الداشبورد بعت أمر (F\n, B\n, ...)
+            String cmd = message.trim();
+            if (!cmd.isEmpty()) {
+                sendCommand(cmd);
+                Log.d(TAG, "WS → Arduino: " + cmd);
+            }
+        }
+
+        @Override
+        public void onMessage(WebSocket conn, ByteBuffer message) { /* unused */ }
+
+        @Override
+        public void onError(WebSocket conn, Exception ex) {
+            Log.e(TAG, "WS Error", ex);
+        }
+
+        @Override
+        public void onStart() {
+            Log.i(TAG, "WebSocket Server started on port " + WS_PORT);
+            runOnUiThread(() ->
+                Toast.makeText(MainActivity.this,
+                    "Bridge ready on port " + WS_PORT, Toast.LENGTH_SHORT).show()
+            );
+        }
+
+        /** أبعت telemetry JSON لكل الداشبوردات المتصلة */
+        void broadcastTelemetry() {
+            Collection<WebSocket> connections = getConnections();
+            if (connections == null || connections.isEmpty()) return;
+            String json = buildTelemetryJson();
+            for (WebSocket ws : connections) {
+                if (ws.isOpen()) ws.send(json);
+            }
+        }
+    }
+
+    /** ابني JSON التليمتري بناءً على آخر قيم وصلت من الأردوينو */
+    private String buildTelemetryJson() {
+        return "{\"t\":\"telemetry\","
+            + "\"mode\":\"" + teleMode + "\","
+            + "\"subMode\":\"" + teleSubMode + "\","
+            + "\"dist\":{\"f\":" + teleDist_F + ",\"l\":" + teleDist_L + ",\"r\":" + teleDist_R + "},"
+            + "\"speeds\":{\"l\":" + teleMotor_L + ",\"r\":" + teleMotor_R + "},"
+            + "\"followerState\":\"" + teleFollowerState + "\","
+            + "\"lockedAngle\":" + teleLockedAngle
+            + "}";
+    }
+
+    private void startWebSocketServer() {
+        try {
+            wsServer = new SmartCarWSServer(WS_PORT);
+            wsServer.start();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start WS server", e);
+        }
+    }
+
+    private void stopWebSocketServer() {
+        if (wsServer != null) {
+            try { wsServer.stop(500); } catch (Exception ignored) {}
+            wsServer = null;
+        }
+    }
+
+    // ==========================================
+    // ARDUINO READER THREAD
+    // قرا بيانات الأردوينو باستمرار وابعتها للداشبورد
+    // ==========================================
+
+    /**
+     * الأردوينو المفروض يبعت سطر زي:
+     *   L:45,F:120,R:30,ML:200,MR:180,ST:LOCKED,ANG:90\n
+     *
+     * لو الأردوينو بتاعك بيبعت format تاني، عدّل parseLine() بس.
+     */
+    private void startArduinoReader() {
+        if (arduinoReaderThread != null && arduinoReaderThread.isAlive()) return;
+        arduinoReaderThread = new Thread(() -> {
+            StringBuilder sb = new StringBuilder();
+            byte[] buf = new byte[256];
+            while (isConnected && inputStream != null) {
+                try {
+                    int n = inputStream.read(buf);
+                    if (n <= 0) continue;
+                    sb.append(new String(buf, 0, n));
+                    int nl;
+                    while ((nl = sb.indexOf("\n")) >= 0) {
+                        String line = sb.substring(0, nl).trim();
+                        sb.delete(0, nl + 1);
+                        if (!line.isEmpty()) parseLine(line);
+                    }
+                } catch (IOException e) {
+                    Log.w(TAG, "Arduino reader stopped: " + e.getMessage());
+                    break;
+                }
+            }
+        });
+        arduinoReaderThread.setDaemon(true);
+        arduinoReaderThread.start();
+    }
+
+    /**
+     * Parse سطر الأردوينو وابعت telemetry للداشبورد.
+     *
+     * Format متوقع:  L:45,F:120,R:30,ML:200,MR:180,ST:LOCKED,ANG:90
+     * كل field اختياري — اللي موجود بيتأخد، اللي مش موجود بيفضل زي ما هو.
+     */
+    private void parseLine(String line) {
+        try {
+            String[] parts = line.split(",");
+            for (String part : parts) {
+                String[] kv = part.split(":");
+                if (kv.length != 2) continue;
+                String key = kv[0].trim().toUpperCase();
+                String val = kv[1].trim();
+                switch (key) {
+                    case "F":   teleDist_F      = Integer.parseInt(val); break;
+                    case "L":   teleDist_L      = Integer.parseInt(val); break;
+                    case "R":   teleDist_R      = Integer.parseInt(val); break;
+                    case "ML":  teleMotor_L     = Integer.parseInt(val); break;
+                    case "MR":  teleMotor_R     = Integer.parseInt(val); break;
+                    case "ST":  teleFollowerState = val;                  break;
+                    case "ANG": teleLockedAngle = Integer.parseInt(val); break;
+                    case "MOD": teleMode        = val;                    break;
+                    case "SUB": teleSubMode     = val;                    break;
+                }
+            }
+            // بعد الـ parse، ابعت JSON لكل الداشبوردات
+            if (wsServer != null) wsServer.broadcastTelemetry();
+        } catch (Exception e) {
+            Log.w(TAG, "parseLine error: " + line + " → " + e.getMessage());
+        }
+    }
+
+    // ==========================================
     // INIT UI
     // ==========================================
     private void initUI() {
@@ -214,7 +405,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             lblVoiceStatus = findViewById(R.id.lblVoiceStatus);
             lblRecognizedText = findViewById(R.id.lblRecognizedText);
             lblConfidence = findViewById(R.id.lblConfidence);
-            lblConfirmQuestion= findViewById(R.id.lblConfirmQuestion);
+            lblConfirmQuestion = findViewById(R.id.lblConfirmQuestion);
             layoutConfirm = findViewById(R.id.layoutConfirm);
 
             layoutManual = findViewById(R.id.layoutManual);
@@ -560,10 +751,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         pendingAuthDevice = device;
         BiometricManager biometricManager = BiometricManager.from(this);
         int canAuthStrong = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG);
-        int canAuthWeak = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK);
+        int canAuthWeak  = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK);
 
         if (canAuthStrong != BiometricManager.BIOMETRIC_SUCCESS &&
-            canAuthWeak != BiometricManager.BIOMETRIC_SUCCESS) {
+            canAuthWeak  != BiometricManager.BIOMETRIC_SUCCESS) {
             Toast.makeText(this, "Biometric not available. Enroll in Settings.", Toast.LENGTH_LONG).show();
             pendingAuthDevice = null;
             return;
@@ -583,9 +774,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     super.onAuthenticationSucceeded(result);
                     if (pendingAuthDevice != null) {
                         connectToDevice(pendingAuthDevice);
-                        if (bluetoothDialog != null && bluetoothDialog.isShowing()) {
+                        if (bluetoothDialog != null && bluetoothDialog.isShowing())
                             bluetoothDialog.dismiss();
-                        }
                         pendingAuthDevice = null;
                     }
                 }
@@ -645,11 +835,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 bluetoothSocket = device.createRfcommSocketToServiceRecord(SPP_UUID);
                 bluetoothSocket.connect();
                 outputStream = bluetoothSocket.getOutputStream();
-                isConnected = true;
-                runOnUiThread(() -> {
-        // Status indicator updated via connection state
-                    Toast.makeText(this, "Connected", Toast.LENGTH_SHORT).show();
-                });
+                inputStream  = bluetoothSocket.getInputStream();   // ← NEW
+                isConnected  = true;
+                startArduinoReader();                              // ← NEW: ابدأ القراءة
+                runOnUiThread(() ->
+                    Toast.makeText(this, "Connected — Bridge active on :" + WS_PORT, Toast.LENGTH_SHORT).show()
+                );
             } catch (IOException e) {
                 isConnected = false;
                 runOnUiThread(() -> Toast.makeText(this, "Connection Failed", Toast.LENGTH_SHORT).show());
@@ -702,18 +893,21 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             case "Manual":
                 layoutManual.setVisibility(View.VISIBLE);
                 tvModeLabel.setText(">>> MODE: MANUAL");
+                teleMode = "AUTO_MANUAL"; teleSubMode = "MANUAL";
                 break;
             case "Body":
                 layoutBody.setVisibility(View.VISIBLE);
                 lblBodyStatus.setVisibility(View.INVISIBLE);
                 tvModeLabel.setText(">>> MODE: BODY FOLLOWER");
                 sendCommand("PAT");
+                teleMode = "BODY_FOLLOWER";
                 break;
             case "Gyro":
                 sendCommand("GYR");
                 layoutGyro.setVisibility(View.VISIBLE);
                 tvModeLabel.setText(">>> MODE: GYRO");
                 isGyroActive = true;
+                teleMode = "GYRO";
                 if (sensorManager != null && accelerometer != null)
                     sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
                 break;
@@ -725,12 +919,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 lblVoiceStatus.setText(">>> PRESS TO SPEAK");
                 lblRecognizedText.setText("");
                 lblConfidence.setText("");
+                teleMode = "AUTO_MANUAL"; teleSubMode = "MANUAL";
                 break;
             case "Line":
                 sendCommand("LIN");
                 layoutLine.setVisibility(View.VISIBLE);
                 tvModeLabel.setText(">>> MODE: LINE FOLLOWER");
                 tvLineStatus.setText("// >>> POINT CAMERA AT LINE");
+                teleMode = "LINE_FOLLOWER";
                 break;
             case "Clap":
                 sendCommand("CLP");
@@ -738,20 +934,25 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 tvModeLabel.setText(">>> MODE: CLAP CONTROL");
                 tvClapStatus.setText(">>> TAP TO ACTIVATE");
                 tvClapCount.setText("");
+                teleMode = "AUDIO";
                 break;
             case "Music":
                 sendCommand("MUS");
                 layoutMusic.setVisibility(View.VISIBLE);
                 tvModeLabel.setText(">>> MODE: MUSIC RHYTHM");
                 tvMusicStatus.setText(">>> TAP TO START");
+                teleMode = "AUDIO";
                 break;
             case "Draw":
                 sendCommand("DRW");
                 layoutDraw.setVisibility(View.VISIBLE);
                 tvModeLabel.setText(">>> MODE: DRAW PATH");
                 tvDrawStatus.setText(">>> DRAW A PATH WITH YOUR FINGER");
+                teleMode = "DRAW_PATH";
                 break;
         }
+        // أبعت الـ mode الجديد للداشبورد فوراً
+        if (wsServer != null) wsServer.broadcastTelemetry();
     }
 
     @Override
@@ -763,11 +964,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         float avgY = (r1y + r2y + r3y) / 3f;
         float thr = threshold / 5.0f;
         String target, status;
-        if (avgY > thr) { target = "F"; status = "Forward"; }
+        if (avgY > thr)       { target = "F"; status = "Forward"; }
         else if (avgY < -thr) { target = "B"; status = "Backward"; }
-        else if (avgX > thr) { target = "R"; status = "Right"; }
+        else if (avgX > thr)  { target = "R"; status = "Right"; }
         else if (avgX < -thr) { target = "L"; status = "Left"; }
-        else { target = "S"; status = "Stop / Flat";}
+        else                  { target = "S"; status = "Stop / Flat"; }
         lblGyroStatus.setText(status);
         if (!target.equals(lastCmd)) sendCommand(target);
     }
@@ -822,8 +1023,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             int height = image.getHeight();
             int rowStride = image.getPlanes()[0].getRowStride();
             int startY = height * 6 / 10;
-            int sumX = 0;
-            int count = 0;
+            int sumX = 0, count = 0;
             for (int y = startY; y < height; y += 2) {
                 for (int x = 0; x < width; x += 4) {
                     int gray = yBuffer.get(y * rowStride + x) & 0xFF;
@@ -836,9 +1036,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 int tolerance = width / 8;
                 final String cmd;
                 final String status;
-                if (centerX < imageCenter - tolerance) { cmd = "L"; status = ">>> LINE LEFT"; }
+                if (centerX < imageCenter - tolerance)      { cmd = "L"; status = ">>> LINE LEFT"; }
                 else if (centerX > imageCenter + tolerance) { cmd = "R"; status = ">>> LINE RIGHT"; }
-                else { cmd = "F"; status = ">>> LINE CENTER"; }
+                else                                        { cmd = "F"; status = ">>> LINE CENTER"; }
                 runOnUiThread(() -> { sendCommand(cmd); tvLineStatus.setText("// " + status); });
             } else {
                 runOnUiThread(() -> { sendCommand("S"); tvLineStatus.setText("// >>> NO LINE DETECTED"); });
@@ -903,9 +1103,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         } else {
                             final long windowStartSnapshot = clapWindowStart.get();
                             handler.postDelayed(() -> {
-                                if (isClapActive && System.currentTimeMillis() - windowStartSnapshot >= 1000) {
+                                if (isClapActive && System.currentTimeMillis() - windowStartSnapshot >= 1000)
                                     executeClapCommand(currentWindowClaps);
-                                }
                             }, 1100);
                         }
                     }
@@ -924,10 +1123,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void executeClapCommand(int claps) {
         String cmd, label;
         switch (claps) {
-            case 1: cmd = "S"; label = "STOP"; break;
-            case 2: cmd = "F"; label = "FORWARD"; break;
+            case 1: cmd = "S"; label = "STOP";     break;
+            case 2: cmd = "F"; label = "FORWARD";  break;
             case 3: cmd = "B"; label = "BACKWARD"; break;
-            default: cmd = "S"; label = "STOP"; break;
+            default: cmd = "S"; label = "STOP";    break;
         }
         sendCommand(cmd);
         runOnUiThread(() -> tvClapStatus.setText("// " + label + " (" + claps + " claps)"));
@@ -1007,10 +1206,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void playDrawPath() {
         if (drawPathView == null) return;
         List<PointF> points = drawPathView.getPoints();
-        if (points.size() < 2) {
-            tvDrawStatus.setText("DRAW SOMETHING FIRST!");
-            return;
-        }
+        if (points.size() < 2) { tvDrawStatus.setText("DRAW SOMETHING FIRST!"); return; }
         if (isDrawingPlaying) return;
         isDrawingPlaying = true;
         tvDrawStatus.setText("// PLAYING...");
@@ -1031,9 +1227,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 if (adjusted < -180) adjusted += 360;
                 String cmd;
                 int duration;
-                if (Math.abs(adjusted) < 25) { cmd = "F"; duration = (int)(dist * 8); }
-                else if (adjusted > 25) { cmd = "R"; duration = (int)(Math.abs(adjusted) * 6); }
-                else { cmd = "L"; duration = (int)(Math.abs(adjusted) * 6); }
+                if (Math.abs(adjusted) < 25)      { cmd = "F"; duration = (int)(dist * 8); }
+                else if (adjusted > 25)            { cmd = "R"; duration = (int)(Math.abs(adjusted) * 6); }
+                else                               { cmd = "L"; duration = (int)(Math.abs(adjusted) * 6); }
                 final String fCmd = cmd;
                 final int fDur = Math.min(duration, 800);
                 final int progress = i;
@@ -1066,14 +1262,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         private Paint paint;
         private List<PointF> points = new ArrayList<>();
 
-        public DrawPathView(Context context) {
-            super(context);
-            init();
-        }
-        public DrawPathView(Context context, android.util.AttributeSet attrs) {
-            super(context, attrs);
-            init();
-        }
+        public DrawPathView(Context context) { super(context); init(); }
+        public DrawPathView(Context context, android.util.AttributeSet attrs) { super(context, attrs); init(); }
+
         private void init() {
             paint = new Paint();
             paint.setColor(Color.parseColor("#00F0FF"));
@@ -1083,38 +1274,28 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             paint.setStrokeJoin(Paint.Join.ROUND);
             paint.setAntiAlias(true);
         }
+
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             canvas.drawColor(Color.parseColor("#1a1a2e"));
             if (!path.isEmpty()) canvas.drawPath(path, paint);
         }
+
         @Override
         public boolean onTouchEvent(MotionEvent event) {
-            float x = event.getX();
-            float y = event.getY();
+            float x = event.getX(), y = event.getY();
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
-                    path.moveTo(x, y);
-                    points.add(new PointF(x, y));
-                    invalidate();
-                    return true;
+                    path.moveTo(x, y); points.add(new PointF(x, y)); invalidate(); return true;
                 case MotionEvent.ACTION_MOVE:
-                    path.lineTo(x, y);
-                    points.add(new PointF(x, y));
-                    invalidate();
-                    return true;
+                    path.lineTo(x, y); points.add(new PointF(x, y)); invalidate(); return true;
             }
             return false;
         }
-        public void clearPath() {
-            path.reset();
-            points.clear();
-            invalidate();
-        }
-        public List<PointF> getPoints() {
-            return new ArrayList<>(points);
-        }
+
+        public void clearPath() { path.reset(); points.clear(); invalidate(); }
+        public List<PointF> getPoints() { return new ArrayList<>(points); }
     }
 
     // ==========================================
@@ -1124,6 +1305,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     protected void onDestroy() {
         super.onDestroy();
         handleDisconnect();
+        stopWebSocketServer();                              // ← NEW: وقف السيرفر
         if (sensorManager != null) sensorManager.unregisterListener(this);
         if (speechRecognizer != null) { speechRecognizer.stopListening(); speechRecognizer.destroy(); }
         if (isLineTracking) stopLineTracking();
