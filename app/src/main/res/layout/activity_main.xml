@@ -170,8 +170,8 @@
                 android:id="@+id/btnFwd"
                 android:layout_width="100dp"
                 android:layout_height="80dp"
-                android:text="▲"
-                android:textSize="28sp"
+                android:text="UP"
+                android:textSize="20sp"
                 android:layout_marginTop="16dp"
                 android:backgroundTint="@color/button_dark" />
 
@@ -185,8 +185,8 @@
                     android:id="@+id/btnLeft"
                     android:layout_width="100dp"
                     android:layout_height="80dp"
-                    android:text="◀"
-                    android:textSize="28sp"
+                    android:text="LEFT"
+                    android:textSize="20sp"
                     android:layout_marginEnd="16dp"
                     android:backgroundTint="@color/button_dark" />
 
@@ -194,16 +194,16 @@
                     android:id="@+id/btnStop"
                     android:layout_width="80dp"
                     android:layout_height="80dp"
-                    android:text="■"
-                    android:textSize="24sp"
+                    android:text="STOP"
+                    android:textSize="18sp"
                     android:backgroundTint="@color/status_red" />
 
                 <Button
                     android:id="@+id/btnRight"
                     android:layout_width="100dp"
                     android:layout_height="80dp"
-                    android:text="▶"
-                    android:textSize="28sp"
+                    android:text="RIGHT"
+                    android:textSize="20sp"
                     android:layout_marginStart="16dp"
                     android:backgroundTint="@color/button_dark" />
             </LinearLayout>
@@ -212,8 +212,8 @@
                 android:id="@+id/btnBack"
                 android:layout_width="100dp"
                 android:layout_height="80dp"
-                android:text="▼"
-                android:textSize="28sp"
+                android:text="DOWN"
+                android:textSize="20sp"
                 android:layout_marginTop="8dp"
                 android:backgroundTint="@color/button_dark" />
         </LinearLayout>
@@ -293,8 +293,8 @@
                 android:id="@+id/btnMic"
                 android:layout_width="120dp"
                 android:layout_height="120dp"
-                android:text="🎤"
-                android:textSize="48sp"
+                android:text="MIC"
+                android:textSize="24sp"
                 android:backgroundTint="@color/button_dark" />
 
             <TextView
@@ -427,8 +427,8 @@
                 android:id="@+id/btnClapMic"
                 android:layout_width="140dp"
                 android:layout_height="140dp"
-                android:text="👏"
-                android:textSize="64sp"
+                android:text="CLAP"
+                android:textSize="32sp"
                 android:backgroundTint="@color/button_dark" />
 
             <TextView
@@ -473,8 +473,8 @@
                 android:id="@+id/btnMusicStart"
                 android:layout_width="160dp"
                 android:layout_height="160dp"
-                android:text="🎵"
-                android:textSize="72sp"
+                android:text="BEAT"
+                android:textSize="32sp"
                 android:backgroundTint="@color/button_dark" />
 
             <TextView
@@ -511,8 +511,8 @@
             android:gravity="center"
             android:visibility="gone">
 
-            <com.example.smartcar.DrawPathView
-                android:id="@+id/drawPathView"
+            <FrameLayout
+                android:id="@+id/drawPathContainer"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
@@ -528,7 +528,7 @@
                     android:id="@+id/btnDrawPlay"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="▶ PLAY"
+                    android:text="PLAY"
                     android:layout_marginEnd="16dp"
                     android:backgroundTint="@color/status_green" />
 
@@ -536,7 +536,7 @@
                     android:id="@+id/btnDrawClear"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="✕ CLEAR"
+                    android:text="CLEAR"
                     android:backgroundTint="@color/status_red" />
             </LinearLayout>
 
