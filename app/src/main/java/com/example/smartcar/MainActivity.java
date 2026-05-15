@@ -144,23 +144,23 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private boolean isDrawingPlaying = false;
 
     // ===== DICTIONARIES =====
-    private static final List DICT_F = Arrays.asList(
+    private static final List<String> DICT_F = Arrays.asList(
         "forward", "go", "ahead", "move", "drive", "straight", "fwd",
         "emshi", "قدام", "تحرك", "امشي", "يلا", "روح", "هيا"
     );
-    private static final List DICT_B = Arrays.asList(
+    private static final List<String> DICT_B = Arrays.asList(
         "back", "backward", "reverse", "return",
         "ارجع", "ورا", "خلف", "رجوع", "تراجع"
     );
-    private static final List DICT_R = Arrays.asList(
+    private static final List<String> DICT_R = Arrays.asList(
         "right", "turn right",
         "يمين", "لف يمين", "الى اليمين"
     );
-    private static final List DICT_L = Arrays.asList(
+    private static final List<String> DICT_L = Arrays.asList(
         "left", "turn left",
         "شمال", "يسار", "لف شمال", "لف يسار"
     );
-    private static final List DICT_S = Arrays.asList(
+    private static final List<String> DICT_S = Arrays.asList(
         "stop", "halt", "freeze", "wait", "pause",
         "قف", "اوقف", "بطل", "وقف", "استنى", "انتظر"
     );
@@ -390,7 +390,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     // PERMISSIONS
     // ==========================================
     private void checkPermissions() {
-        List perms = new ArrayList<>();
+        List<String> perms = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
                 != PackageManager.PERMISSION_GRANTED)
@@ -419,7 +419,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             for (int i = 0; i < permissions.length; i++) {
                 if (permissions[i].equals(Manifest.permission.CAMERA) &&
                     grantResults[i] == PackageManager.PERMISSION_GRANTED) {
-                    // Camera permission granted, can init if needed
+                    // Camera permission granted
                 }
             }
         }
@@ -459,7 +459,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 lblConfidence.setText("");
             }
             @Override public void onResults(Bundle results) {
-                List matches = results.getStringArrayList(
+                List<String> matches = results.getStringArrayList(
                     SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches != null && !matches.isEmpty())
                     handleVoiceResult(matches.get(0));
@@ -498,7 +498,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         String text = normalizeText(raw);
         lblRecognizedText.setText("\"" + raw + "\"");
 
-        Map scores = new HashMap<>();
+        Map<String, Double> scores = new HashMap<>();
         scores.put("F", matchScore(text, DICT_F));
         scores.put("B", matchScore(text, DICT_B));
         scores.put("R", matchScore(text, DICT_R));
@@ -507,7 +507,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         String best = "S";
         double bestScore = 0;
-        for (Map.Entry e : scores.entrySet()) {
+        for (Map.Entry<String, Double> e : scores.entrySet()) {
             if (e.getValue() > bestScore) {
                 bestScore = e.getValue();
                 best = e.getKey();
@@ -565,7 +565,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             .trim();
     }
 
-    private double matchScore(String input, List dict) {
+    private double matchScore(String input, List<String> dict) {
         double best = 0;
         for (String word : dict) {
             if (input.equals(word)) return 1.0;
@@ -672,9 +672,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         ListView lvDevices = bluetoothDialog.findViewById(R.id.lvDevices);
         Button btnDisconnect = bluetoothDialog.findViewById(R.id.btnDisconnect);
 
-        Set paired = bluetoothAdapter.getBondedDevices();
-        List nameList = new ArrayList<>();
-        List devList = new ArrayList<>();
+        Set<BluetoothDevice> paired = bluetoothAdapter.getBondedDevices();
+        List<String> nameList = new ArrayList<>();
+        List<BluetoothDevice> devList = new ArrayList<>();
         for (BluetoothDevice d : paired) {
             nameList.add(d.getName() + "\n" + d.getAddress());
             devList.add(d);
@@ -841,7 +841,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     @Override public void onAccuracyChanged(Sensor s, int a) {}
 
     // ==========================================
-    // 📷 MODE 4 — LINE FOLLOWER (CameraX)
+    // MODE 4 — LINE FOLLOWER (CameraX)
     // ==========================================
     private void startLineTracking() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -897,7 +897,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             int height = image.getHeight();
             int rowStride = image.getPlanes()[0].getRowStride();
 
-            // Analyze bottom 40% of image (where line is closest)
             int startY = height * 6 / 10;
             int sumX = 0;
             int count = 0;
@@ -943,7 +942,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     // ==========================================
-    // 👏 MODE 5 — CLAP CONTROL (AudioRecord)
+    // MODE 5 — CLAP CONTROL (AudioRecord)
     // ==========================================
     private void startClapListener() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -979,7 +978,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 double rms = calculateRMS(buffer, read);
                 if (rms > CLAP_THRESHOLD) {
                     long now = System.currentTimeMillis();
-                    if (now - lastClapTime > 250) { // debounce 250ms
+                    if (now - lastClapTime > 250) {
                         lastClapTime = now;
 
                         if (clapWindowStart == 0 || now - clapWindowStart > 1200) {
@@ -994,13 +993,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                             tvClapCount.setText("CLAPS: " + currentWindowClaps);
                         });
 
-                        // Execute command after window expires or on 3 claps
                         if (windowClaps >= 3) {
                             executeClapCommand(windowClaps);
                             clapWindowStart = 0;
                             windowClaps = 0;
                         } else {
-                            // Schedule check after window
                             handler.postDelayed(() -> {
                                 if (isClapActive && System.currentTimeMillis() - clapWindowStart >= 1000) {
                                     executeClapCommand(currentWindowClaps);
@@ -1048,7 +1045,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     // ==========================================
-    // 🎵 MODE 6 — MUSIC RHYTHM (Beat Detection)
+    // MODE 6 — MUSIC RHYTHM (Beat Detection)
     // ==========================================
     private void startMusicListener() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -1084,20 +1081,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 double flux = energy - prevEnergy;
                 prevEnergy = energy;
 
-                // Update visualizer
                 final float barHeight = Math.min(60f, (float)(energy / 100));
                 runOnUiThread(() -> {
                     visualizerView.setScaleY(barHeight / 60f);
                     visualizerView.setAlpha(0.5f + (barHeight / 120f));
                 });
 
-                // Beat detection: energy flux above threshold
                 if (flux > 1500 && energy > 2000) {
                     beatCount++;
                     final int currentBeat = beatCount;
                     runOnUiThread(() -> {
                         tvMusicStatus.setText("// BEAT #" + currentBeat);
-                        // Dance pattern: F on every beat, L-R on every 4th
                         if (currentBeat % 4 == 0) {
                             sendCommand("R");
                             handler.postDelayed(() -> sendCommand("L"), 200);
@@ -1107,7 +1101,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         }
                     });
 
-                    // Debounce between beats
                     try { Thread.sleep(300); } catch (InterruptedException ignored) {}
                 }
             }
@@ -1129,7 +1122,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     // ==========================================
-    // ✏️ MODE 7 — DRAW PATH
+    // MODE 7 — DRAW PATH
     // ==========================================
     private void playDrawPath() {
         List<PointF> points = drawPathView.getPoints();
@@ -1142,7 +1135,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         tvDrawStatus.setText("// PLAYING PATH...");
 
         new Thread(() -> {
-            // Simplify: sample every Nth point
             int step = Math.max(1, points.size() / 50);
             List<PointF> simplified = new ArrayList<>();
             for (int i = 0; i < points.size(); i += step) {
@@ -1159,7 +1151,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 float dist = (float) Math.sqrt(dx * dx + dy * dy);
                 float angle = (float) Math.toDegrees(Math.atan2(dy, dx));
 
-                // Adjust: -90 is "up" (forward) on screen
                 float adjusted = angle + 90;
                 if (adjusted > 180) adjusted -= 360;
                 if (adjusted < -180) adjusted += 360;
@@ -1168,7 +1159,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 int duration;
                 if (Math.abs(adjusted) < 25) {
                     cmd = "F";
-                    duration = (int)(dist * 8); // ms per pixel
+                    duration = (int)(dist * 8);
                 } else if (adjusted > 25) {
                     cmd = "R";
                     duration = (int)(Math.abs(adjusted) * 6);
@@ -1199,7 +1190,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     // ==========================================
-    // 🎨 CUSTOM DRAW PATH VIEW
+    // CUSTOM DRAW PATH VIEW
     // ==========================================
     public static class DrawPathView extends View {
         private Path path = new Path();
