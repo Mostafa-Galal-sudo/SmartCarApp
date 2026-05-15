@@ -67,6 +67,8 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
@@ -132,6 +134,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private long lastClapTime = 0;
     private int clapCount = 0;
     private static final double CLAP_THRESHOLD = 5000.0;
+    // Atomic fields for thread-safe lambda access
+    private final AtomicLong clapWindowStart = new AtomicLong(0);
+    private final AtomicInteger windowClaps = new AtomicInteger(0);
 
     // ===== MUSIC RHYTHM =====
     private boolean isMusicActive = false;
@@ -954,11 +959,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         btnClapMic.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
         tvClapStatus.setText("// LISTENING FOR CLAPS...");
         clapCount = 0;
+        clapWindowStart.set(0);
+        windowClaps.set(0);
 
-        int sampleRate = 44100;
-        int bufferSize = AudioRecord.getMinBufferSize(sampleRate,
-            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-        if (bufferSize < 1024) bufferSize = 1024;
+        final int sampleRate = 44100;
+        final int bufferSize = Math.max(1024,
+            AudioRecord.getMinBufferSize(sampleRate,
+                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT));
 
         clapAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
             sampleRate, AudioFormat.CHANNEL_IN_MONO,
@@ -967,12 +974,23 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         final short[] buffer = new short[bufferSize];
         clapAudioRecord.startRecording();
 
-        clapThread = new Thread(() -> {
-            long clapWindowStart = 0;
-            int windowClaps = 0;
+        clapThread = new Thread(new ClapRunnable(buffer, bufferSize));
+        clapThread.start();
+    }
 
+    private class ClapRunnable implements Runnable {
+        private final short[] buffer;
+        private final int bufSize;
+
+        ClapRunnable(short[] buffer, int bufSize) {
+            this.buffer = buffer;
+            this.bufSize = bufSize;
+        }
+
+        @Override
+        public void run() {
             while (isClapActive && clapAudioRecord != null) {
-                int read = clapAudioRecord.read(buffer, 0, bufferSize);
+                int read = clapAudioRecord.read(buffer, 0, bufSize);
                 if (read <= 0) continue;
 
                 double rms = calculateRMS(buffer, read);
@@ -981,25 +999,27 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     if (now - lastClapTime > 250) {
                         lastClapTime = now;
 
-                        if (clapWindowStart == 0 || now - clapWindowStart > 1200) {
-                            clapWindowStart = now;
-                            windowClaps = 1;
+                        long currentWindowStart = clapWindowStart.get();
+                        if (currentWindowStart == 0 || now - currentWindowStart > 1200) {
+                            clapWindowStart.set(now);
+                            windowClaps.set(1);
                         } else {
-                            windowClaps++;
+                            windowClaps.incrementAndGet();
                         }
 
-                        final int currentWindowClaps = windowClaps;
+                        final int currentWindowClaps = windowClaps.get();
                         runOnUiThread(() -> {
                             tvClapCount.setText("CLAPS: " + currentWindowClaps);
                         });
 
-                        if (windowClaps >= 3) {
-                            executeClapCommand(windowClaps);
-                            clapWindowStart = 0;
-                            windowClaps = 0;
+                        if (windowClaps.get() >= 3) {
+                            executeClapCommand(windowClaps.get());
+                            clapWindowStart.set(0);
+                            windowClaps.set(0);
                         } else {
+                            final long windowStartSnapshot = clapWindowStart.get();
                             handler.postDelayed(() -> {
-                                if (isClapActive && System.currentTimeMillis() - clapWindowStart >= 1000) {
+                                if (isClapActive && System.currentTimeMillis() - windowStartSnapshot >= 1000) {
                                     executeClapCommand(currentWindowClaps);
                                 }
                             }, 1100);
@@ -1007,8 +1027,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     }
                 }
             }
-        });
-        clapThread.start();
+        }
     }
 
     private void stopClapListener() {
@@ -1057,10 +1076,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         btnMusicStart.setBackgroundTintList(getResources().getColorStateList(R.color.status_green, null));
         tvMusicStatus.setText("// LISTENING TO BEATS...");
 
-        int sampleRate = 44100;
-        int bufferSize = AudioRecord.getMinBufferSize(sampleRate,
-            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-        if (bufferSize < 2048) bufferSize = 2048;
+        final int sampleRate = 44100;
+        final int bufferSize = Math.max(2048,
+            AudioRecord.getMinBufferSize(sampleRate,
+                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT));
 
         musicAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
             sampleRate, AudioFormat.CHANNEL_IN_MONO,
@@ -1069,12 +1088,26 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         final short[] buffer = new short[bufferSize];
         musicAudioRecord.startRecording();
 
-        musicThread = new Thread(() -> {
+        musicThread = new Thread(new MusicRunnable(buffer, bufferSize));
+        musicThread.start();
+    }
+
+    private class MusicRunnable implements Runnable {
+        private final short[] buffer;
+        private final int bufSize;
+
+        MusicRunnable(short[] buffer, int bufSize) {
+            this.buffer = buffer;
+            this.bufSize = bufSize;
+        }
+
+        @Override
+        public void run() {
             double prevEnergy = 0;
             int beatCount = 0;
 
             while (isMusicActive && musicAudioRecord != null) {
-                int read = musicAudioRecord.read(buffer, 0, bufferSize);
+                int read = musicAudioRecord.read(buffer, 0, bufSize);
                 if (read <= 0) continue;
 
                 double energy = calculateRMS(buffer, read);
@@ -1104,8 +1137,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     try { Thread.sleep(300); } catch (InterruptedException ignored) {}
                 }
             }
-        });
-        musicThread.start();
+        }
     }
 
     private void stopMusicListener() {
