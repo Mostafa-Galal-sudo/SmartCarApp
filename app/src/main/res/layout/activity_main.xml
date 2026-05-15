@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/bg_dark"
+    android:background="@color/background_dark"
     android:padding="8dp">
 
     <!-- ===== TOP BAR ===== -->
@@ -261,7 +261,7 @@
                 android:layout_height="wrap_content"
                 android:text="FLAT"
                 android:textSize="32sp"
-                android:textColor="@color/text_bright"
+                android:textColor="@color/text_white"
                 android:fontFamily="monospace" />
 
             <TextView
@@ -312,7 +312,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text=""
-                android:textColor="@color/text_bright"
+                android:textColor="@color/text_white"
                 android:textSize="14sp" />
 
             <TextView
@@ -338,7 +338,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Did you mean...?"
-                    android:textColor="@color/text_bright"
+                    android:textColor="@color/text_white"
                     android:textSize="16sp" />
 
                 <LinearLayout
