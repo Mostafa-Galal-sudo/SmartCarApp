@@ -1,17 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Original colors -->
-    <color name="background_dark">#0A0A0A</color>
-    <color name="card_dark">#111111</color>
-    <color name="button_dark">#1A1A1A</color>
-    <color name="accent_blue">#FFE600</color>
-    <color name="accent_orange">#FF6B00</color>
-    <color name="status_red">#FF2222</color>
-    <color name="status_green">#39FF14</color>
-    <color name="text_white">#FFFFFF</color>
-    <color name="text_dim">#888888</color>
+    <!-- ===== CYBERPUNK NEON PALETTE ===== -->
 
-    <!-- NEW: Missing colors referenced in activity_main.xml -->
-    <color name="bg_dark">#0A0A0A</color>
-    <color name="text_bright">#FFFFFF</color>
+    <!-- Primary Neons -->
+    <color name="neon_cyan">#00F0FF</color>
+    <color name="neon_magenta">#FF00FF</color>
+    <color name="neon_yellow">#F0FF00</color>
+    <color name="neon_hot_pink">#FF2A6D</color>
+    <color name="neon_green">#39FF14</color>
+    <color name="neon_orange">#FF6B00</color>
+    <color name="neon_purple">#B026FF</color>
+    <color name="neon_white">#E0E0E0</color>
+
+    <!-- Dark Backgrounds -->
+    <color name="cyber_black">#000000</color>
+    <color name="cyber_dark">#0A0E27</color>
+    <color name="cyber_navy">#0D1117</color>
+    <color name="cyber_purple_dark">#1A0B2E</color>
+    <color name="cyber_panel">#111827</color>
+    <color name="cyber_card">#1E293B</color>
+
+    <!-- Glow / Accent variations -->
+    <color name="cyan_glow">#00F0FF</color>
+    <color name="magenta_glow">#FF00FF</color>
+    <color name="pink_glow">#FF2A6D</color>
+    <color name="green_glow">#39FF14</color>
+
+    <!-- Status colors -->
+    <color name="status_connected">#00F0FF</color>
+    <color name="status_disconnected">#FF2A6D</color>
+    <color name="status_warning">#F0FF00</color>
+
+    <!-- Text colors -->
+    <color name="text_primary">#E0E0E0</color>
+    <color name="text_secondary">#8899AA</color>
+    <color name="text_dim">#556677</color>
+    <color name="text_neon">#00F0FF</color>
+
+    <!-- Button states -->
+    <color name="btn_idle">#1E293B</color>
+    <color name="btn_active">#00F0FF</color>
+    <color name="btn_danger">#FF2A6D</color>
+    <color name="btn_success">#39FF14</color>
+
+    <!-- Legacy aliases for compatibility -->
+    <color name="background_dark">@color/cyber_dark</color>
+    <color name="card_dark">@color/cyber_card</color>
+    <color name="button_dark">@color/cyber_panel</color>
+    <color name="accent_blue">@color/neon_cyan</color>
+    <color name="accent_orange">@color/neon_orange</color>
+    <color name="status_red">@color/neon_hot_pink</color>
+    <color name="status_green">@color/neon_green</color>
+    <color name="text_white">@color/text_primary</color>
+    <color name="text_dim_legacy">@color/text_dim</color>
+    <color name="bg_dark">@color/cyber_dark</color>
+    <color name="text_bright">@color/text_primary</color>
 </resources>
