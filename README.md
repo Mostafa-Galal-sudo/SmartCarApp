@@ -1,10 +1,10 @@
-# 🚗 SmartCar — Intelligent Robot Car System
+#  SmartCar — Intelligent Robot Car System
 
 A multi-layered intelligent robot car system that integrates an **Arduino-based vehicle**, an **Android control application**, and a **real-time web dashboard** — all communicating seamlessly over Bluetooth and WiFi.
 
 ---
 
-## 📐 System Architecture
+##  System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -29,7 +29,7 @@ A multi-layered intelligent robot car system that integrates an **Arduino-based 
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 SmartCar/
@@ -52,7 +52,7 @@ SmartCar/
 
 ---
 
-## ⚙️ Hardware Components
+##  Hardware Components
 
 | Component | Role |
 |-----------|------|
@@ -82,7 +82,7 @@ SmartCar/
 
 ---
 
-## 🎮 Control Modes
+##  Control Modes
 
 ### 1. Manual Mode
 User controls the car directly via on-screen D-Pad buttons or keyboard arrows on the dashboard. Commands are sent in real-time; releasing a button immediately stops the car.
@@ -170,7 +170,7 @@ The user draws a path with their finger on the phone screen. The app analyzes th
 
 ---
 
-## 🔐 Biometric Security
+##  Biometric Security
 
 Before any Bluetooth connection is established, the user must authenticate using the device's biometric system (fingerprint or face recognition) via Android's `BiometricPrompt API`.
 
@@ -192,7 +192,7 @@ Before any Bluetooth connection is established, the user must authenticate using
 
 ---
 
-## 📡 Real-Time Telemetry
+##  Real-Time Telemetry
 
 The Arduino sends sensor data every 200ms via Bluetooth Serial in this format:
 
@@ -232,7 +232,7 @@ The Android app reads this via `parseLine()`, converts it to JSON, and broadcast
 
 ---
 
-## 🌐 WebSocket Bridge
+##  WebSocket Bridge
 
 The Android app runs an embedded WebSocket Server on port **8080** using the `Java-WebSocket` library. This allows the web dashboard (running on any laptop or PC on the same WiFi network) to connect directly to the phone.
 
@@ -250,7 +250,7 @@ Dashboard (Browser)  ←→  ws://PHONE_IP:8080  ←→  Android App  ←→  Ar
 
 ---
 
-## 🛡️ Safety Layer
+##  Safety Layer
 
 Every phone-controlled mode (Gyro, Line, Clap, Music, Draw) includes an independent safety check running every 300–500ms. If the front ultrasonic sensor detects an obstacle closer than 20 cm, the motors stop immediately — regardless of what command the phone just sent.
 
@@ -259,7 +259,7 @@ Every phone-controlled mode (Gyro, Line, Clap, Music, Draw) includes an independ
 
 ---
 
-## 🖥️ Web Dashboard Features
+##  Web Dashboard Features
 
 | Feature | Description |
 |---------|-------------|
@@ -274,7 +274,7 @@ Every phone-controlled mode (Gyro, Line, Clap, Music, Draw) includes an independ
 
 ---
 
-## 🚀 Setup & Running
+##  Setup & Running
 
 ### Arduino
 1. Open `SmartCar.ino` in Arduino IDE
@@ -305,7 +305,7 @@ Every phone-controlled mode (Gyro, Line, Clap, Music, Draw) includes an independ
 
 ---
 
-## 📦 Dependencies
+##  Dependencies
 
 ### Android (`app/build.gradle`)
 ```gradle
